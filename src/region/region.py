@@ -5,7 +5,8 @@ from typing import Dict, Iterable, Set
 
 import numpy as np
 
-from src.map.base import FlatLocalSensoryMap, LocalSensoryMap
+from src.map.base import LocalSensoryMap
+from src.map.local import FlatLocalSensoryMap
 from src.neuron.neuron import BaseNeuron, EffectorNeuron, SensoryNeuron, StandardNeuron, sigma
 
 

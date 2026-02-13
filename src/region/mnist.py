@@ -4,6 +4,7 @@ from typing import Dict, Iterable
 
 import numpy as np
 
+from src.map.base import LocalSensoryMap
 from src.region.region import EffectorRegion, SensoryLevelRegion
 
 
@@ -20,12 +21,14 @@ class MNISTSensoryRegion(SensoryLevelRegion):
         width: int = 28,
         height: int = 28,
         input_gain: float = 1.0,
+        local_map: LocalSensoryMap | None = None,
     ):
         super().__init__(
             region_id=region_id,
             width=width,
             height=height,
             input_gain=input_gain,
+            local_map=local_map,
         )
 
     def ingest(self, chunk: np.ndarray) -> None:
