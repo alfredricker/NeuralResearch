@@ -22,7 +22,7 @@ class BaseRegion:
 
 
 
-class SensoryLevelRegion(BaseRegion):
+class SensoryRegion(BaseRegion):
     """
     L_0 region: feed-in neurons are sensory neurons.
     For MNIST, use width=28 and height=28 (784 neurons).
