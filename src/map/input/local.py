@@ -1,8 +1,8 @@
 from typing import Dict
 import numpy as np
-from .base import LocalSensoryMap
+from .base import LocalInputMap
 
-class FlatLocalSensoryMap(LocalSensoryMap):
+class FlatLocalInputMap(LocalInputMap):
     """
     Deterministic local mapping:
     chunk[i] -> f\"{region_id}:s_{i}\"

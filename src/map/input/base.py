@@ -5,7 +5,7 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 
 @dataclass(frozen=True)
-class RegionChunkAssignment:
+class RegionInputAssignment:
     """
     Output of global mapping stage: one chunk assigned to one region.
     """
@@ -15,16 +15,16 @@ class RegionChunkAssignment:
     chunk_origin: Tuple[int, int]
 
 
-class GlobalMap:
+class GlobalInputMap:
     """
     Stage 1 map: Omega -> region chunks.
     """
 
-    def route(self, sample: np.ndarray) -> List[RegionChunkAssignment]:
+    def route(self, sample: np.ndarray) -> List[RegionInputAssignment]:
         raise NotImplementedError
 
 
-class LocalSensoryMap:
+class LocalInputMap:
     """
     Stage 2 map: region chunk -> sensory neuron payload.
     """
@@ -34,8 +34,8 @@ class LocalSensoryMap:
 
 
 def build_region_payloads(
-    global_map: GlobalMap,
-    local_maps: Dict[str, LocalSensoryMap],
+    global_map: GlobalInputMap,
+    local_maps: Dict[str, LocalInputMap],
     sample: np.ndarray,
 ) -> Dict[str, Dict[str, float]]:
     """

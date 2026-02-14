@@ -4,9 +4,10 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from .base import GlobalMap, LocalSensoryMap, RegionChunkAssignment
+from .base import GlobalInputMap, RegionChunkAssignment
+from .local import FlatLocalInputMap
 
-class MnistTiledGlobalMap(GlobalMap):
+class MnistTiledGlobalMap(GlobalInputMap):
     """
     Split a 2D image into fixed rectangular tiles routed to region IDs.
     Optionally supports overlap (in pixels) between neighboring tiles.
@@ -70,22 +71,6 @@ class MnistTiledGlobalMap(GlobalMap):
         return assignments
 
 
-class MnistFlatLocalSensoryMap(LocalSensoryMap):
-    """
-    Local MNIST map:
-    flatten chunk and map to sensory ids `region_id:s_i`.
-    """
-
-    def __init__(self, expected_size: int | None = None):
-        self.expected_size = expected_size
-
-    def map_chunk_to_neurons(self, region_id: str, chunk: np.ndarray) -> Dict[str, float]:
-        flat = np.asarray(chunk, dtype=np.float32).reshape(-1)
-        if self.expected_size is not None and flat.size != self.expected_size:
-            raise ValueError(f"Expected chunk size {self.expected_size}, got {flat.size}")
-        return {f"{region_id}:s_{idx}": float(value) for idx, value in enumerate(flat)}
-
-
 def build_mnist_payloads(
     global_map: MnistTiledGlobalMap,
     sample: np.ndarray,
@@ -99,7 +84,7 @@ def build_mnist_payloads(
     assignments = global_map.route(sample)
     for assignment in assignments:
         expected = None if expected_sizes is None else expected_sizes.get(assignment.region_id)
-        local_map = MnistFlatLocalSensoryMap(expected_size=expected)
+        local_map = FlatLocalInputMap(expected_size=expected)
         payloads[assignment.region_id] = local_map.map_chunk_to_neurons(
             assignment.region_id, assignment.chunk
         )
