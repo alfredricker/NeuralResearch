@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from typing import Literal, Tuple
 
 RegionKind = Literal["sensory", "relay", "effector"]
-EdgePattern = Literal["dense", "one_to_one"]
+
+from .edge_pattern import EdgePattern
 
 
 @dataclass(frozen=True)
@@ -23,8 +24,8 @@ class RegionSpec:
 class EdgeSpec:
     src_region_id: str
     dst_region_id: str
-    pattern: EdgePattern = "dense"
-    weight: float = 1.0
+    pattern: EdgePattern = field(default_factory=EdgePattern.dense)
+    weight: float | None = None
 
 
 @dataclass(frozen=True)

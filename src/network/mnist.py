@@ -9,6 +9,7 @@ from src.map.base import LocalSensoryMap
 from src.map.mnist import MnistTiledGlobalMap
 
 from .builder import build_local_maps_for_network, build_network
+from .edge_pattern import EdgePattern
 from .graph import CorticalNetwork
 from .spec import EdgeSpec, NetworkSpec, RegionSpec
 
@@ -70,8 +71,7 @@ def build_mnist_simple_spec(
                 EdgeSpec(
                     src_region_id=rid,
                     dst_region_id=classifier_region_id,
-                    pattern="dense",
-                    weight=1.0,
+                    pattern=EdgePattern.dense(weight=1.0),
                 )
             )
 

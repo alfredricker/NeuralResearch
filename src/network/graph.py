@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Literal
+from typing import Dict, Iterable, List
 
 from src.map.base import GlobalMap, LocalSensoryMap, build_region_payloads
 from src.region.region import BaseRegion, EffectorRegion
 
-EdgePattern = Literal["dense", "one_to_one"]
+from .edge_pattern import EdgePattern, EdgePatternKind
 
 
 @dataclass(frozen=True)
 class RegionEdge:
     src_region_id: str
     dst_region_id: str
-    pattern: EdgePattern = "dense"
+    pattern: EdgePattern
     weight: float = 1.0
 
 
@@ -36,8 +36,8 @@ class CorticalNetwork:
         self,
         src_region_id: str,
         dst_region_id: str,
-        pattern: EdgePattern = "dense",
-        weight: float = 1.0,
+        pattern: EdgePattern | EdgePatternKind | str = "dense",
+        weight: float | None = None,
     ) -> None:
         if src_region_id not in self.regions:
             raise ValueError(f"Unknown source region: {src_region_id}")
@@ -49,35 +49,28 @@ class CorticalNetwork:
 
         src_ids = sorted(src.feed_out_ids)
         dst_ids = sorted(dst.feed_in_ids)
+        pattern_obj = EdgePattern.coerce(pattern, weight=weight)
 
-        if not src_ids:
-            raise ValueError(f"Source region has no feed-out neurons: {src_region_id}")
-        if not dst_ids:
-            raise ValueError(f"Destination region has no feed-in neurons: {dst_region_id}")
+        try:
+            pairs = pattern_obj.connection_pairs(src_ids=src_ids, dst_ids=dst_ids)
+        except ValueError as exc:
+            message = str(exc)
+            if message == "Source region has no feed-out neurons":
+                raise ValueError(f"{message}: {src_region_id}") from exc
+            if message == "Destination region has no feed-in neurons":
+                raise ValueError(f"{message}: {dst_region_id}") from exc
+            raise
 
-        if pattern == "dense":
-            for sid in src_ids:
-                src_neuron = src.neurons[sid]
-                for did in dst_ids:
-                    src_neuron.terminal_weights[did] = weight
-                    dst.neurons[did].incident_weights[sid] = weight
-        elif pattern == "one_to_one":
-            if len(src_ids) != len(dst_ids):
-                raise ValueError(
-                    f"one_to_one requires equal sizes; got {len(src_ids)} and {len(dst_ids)}"
-                )
-            for sid, did in zip(src_ids, dst_ids):
-                src.neurons[sid].terminal_weights[did] = weight
-                dst.neurons[did].incident_weights[sid] = weight
-        else:
-            raise ValueError(f"Unsupported edge pattern: {pattern}")
+        for sid, did in pairs:
+            src.neurons[sid].terminal_weights[did] = pattern_obj.weight
+            dst.neurons[did].incident_weights[sid] = pattern_obj.weight
 
         self.edges.append(
             RegionEdge(
                 src_region_id=src_region_id,
                 dst_region_id=dst_region_id,
-                pattern=pattern,
-                weight=weight,
+                pattern=pattern_obj,
+                weight=pattern_obj.weight,
             )
         )
 
