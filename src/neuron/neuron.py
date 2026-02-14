@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Iterable
+
+from src.neuron.edge import Edge
 
 
 def sigma(x: float) -> float:
@@ -14,25 +16,21 @@ class BaseNeuron:
     neuron_id: str
     decay: float = 0.05
     threshold: float = 0.1
-    activity: float = 0.0
-
-    # adjacency + weights
-    incident_weights: Dict[str, float] = field(default_factory=dict)  # P(h): src_id -> w(src, self)
-    terminal_weights: Dict[str, float] = field(default_factory=dict)  # Q(h): dst_id -> w(self, dst)
+    activity: float = 0.05
 
     def is_active(self) -> bool:
         return self.activity > self.threshold
 
-    def synaptic_input(self, neuron_outputs: Dict[str, float]) -> float:
+    def synaptic_input(self, input_signals_and_weights: Iterable[tuple[str, float]]) -> float:
         # f_h = sum_{p in P(h)} sigma(alpha_p) * w(p,h)
         total = 0.0
-        for src_id, w in self.incident_weights.items():
-            total += neuron_outputs.get(src_id, 0.0) * w
+        for src_id, w in input_signals_and_weights:
+            total += src_id.activity * w
         return total
 
-    def step(self, neuron_outputs: Dict[str, float]) -> None:
+    def step(self, input_signals_and_weights: Iterable[tuple[str, float]]) -> None:
         # alpha(t+1) = (1-lambda)alpha(t) + f/(|f|+1)
-        f = self.synaptic_input(neuron_outputs)
+        f = self.synaptic_input(input_signals_and_weights)
         self.activity = (1.0 - self.decay) * self.activity + (f / (abs(f) + 1.0))
 
 
@@ -57,8 +55,8 @@ class StandardNeuron(BaseNeuron):
     """
     bias: float = 0.0
 
-    def step(self, neuron_outputs: Dict[str, float]) -> None:
-        f = self.synaptic_input(neuron_outputs) + self.bias
+    def step(self, input_signals_and_weights: Iterable[tuple[str, float]]) -> None:
+        f = self.synaptic_input(input_signals_and_weights) + self.bias
         self.activity = (1.0 - self.decay) * self.activity + (f / (abs(f) + 1.0))
 
 
