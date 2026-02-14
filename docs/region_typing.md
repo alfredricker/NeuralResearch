@@ -92,18 +92,4 @@ Current neuron classes:
 - `EffectorNeuron`
   - output neuron with `output_label` and `readout()`
 
-## Dataflow (Current Experimental Path)
 
-1. Load MNIST sample from `src/data.py`
-2. Run global map to produce region chunk assignments
-3. Run local map to produce per-region neuron payloads
-4. Apply payloads to sensory regions
-5. Step regions and collect feed-out signals
-6. Feed signals into classifier/effector region
-7. Read class scores / predicted label
-
-## Notes and Extension Points
-
-- You can swap `GlobalMap` without changing region/neuron classes.
-- You can swap `LocalSensoryMap` without changing global routing.
-- Future additions (`ModelNeuron`, `WhereNeuron`, feedback/lateral wiring) should keep the ID and map contracts stable.
