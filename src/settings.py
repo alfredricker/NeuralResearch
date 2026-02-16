@@ -1,0 +1,1 @@
+MAX_DISCRETE_CARDINALITY = 10_000 # this is the maximum number of items in a discrete domain
