@@ -20,6 +20,7 @@ It seems standard to define the raw space as a token sequence and define a map b
 # Interface Between Domain and Regions
 So how can we define an API between arbitrary tensors and neurons?
 
+## Input
 1. Clarify what is the tensor to be mapped to activities (if exists).
 2. Normalize it to (0,1)^(n)
 3. Clarify the size of the discrete set which is to be mapped to neuron_ids (let this be cardinality k).
@@ -29,5 +30,17 @@ where m is the number of neurons that receive a given item in the set.
 
 ```python
 class Domain:
-
+    activity_tensor_shape
+    discrete_set_cardinality
+    value_range
 ```
+
+So this provides all the information about the domain, and encapsulates the normalization procedure, making everything ready to map onto neurons. There must be a separate class or function that sets up the sensory regions and assigns ids for given elements of the domain.
+
+## Output
+If outputs are to be tensors or classify objects, you could still use the domain class.
+The activity tensor shape is how the shape of the continuous output data from a set of neuron activities.
+The discrete set cardinality is the number of continuous elements (or number of classifier elements in the case of 0 or None activity_tensor_shape).
+The value range is the is the range of the activity tensors for the inverse normalization.
+
+It is necessary to define an order of the discrete set. Instead of discrete set elements from an input domain to activity 1, it makes sense to apply an argmax function to the F_z of a region and take the set element as the corresponding max neuron_id.
