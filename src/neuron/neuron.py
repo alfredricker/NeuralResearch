@@ -1,73 +1,21 @@
-from __future__ import annotations
-
-from dataclasses import dataclass, field
-from typing import Dict, Iterable
-
-from src.neuron.edge import Edge
-
+from typing import List
 
 def sigma(x: float) -> float:
     """Bounded readout in (-1, 1)."""
     return x / (abs(x) + 1.0)
 
+class Neuron:
+    def __init__(self, index: int, activity_reset: float = -0.2, initial_activity: float = 0.0):
+        self.index = index # for id purposes
+        self.activity_reset = activity_reset
+        self.activity = initial_activity
 
-@dataclass
-class BaseNeuron:
-    neuron_id: str
-    decay: float = 0.05
-    threshold: float = 0.1
-    activity: float = 0.05
+    def update_activity(self, activity: float) -> None:
+        self.activity = activity
 
-    def is_active(self) -> bool:
-        return self.activity > self.threshold
+    def fire(self) -> None:
+        self.activity = self.activity_reset
 
-    def synaptic_input(self, input_signals_and_weights: Iterable[tuple[str, float]]) -> float:
-        # f_h = sum_{p in P(h)} sigma(alpha_p) * w(p,h)
-        total = 0.0
-        for src_id, w in input_signals_and_weights:
-            total += src_id.activity * w
-        return total
-
-    def step(self, input_signals_and_weights: Iterable[tuple[str, float]]) -> None:
-        # alpha(t+1) = (1-lambda)alpha(t) + f/(|f|+1)
-        f = self.synaptic_input(input_signals_and_weights)
-        self.activity = (1.0 - self.decay) * self.activity + (f / (abs(f) + 1.0))
-
-
-@dataclass
-class SensoryNeuron(BaseNeuron):
-    """
-    Input-boundary neuron (F_omega).
-    Typically receives direct external signal each tick.
-    """
-    input_gain: float = 1.0
-
-    def apply_input(self, value: float) -> None:
-        # direct mapping alpha = p (or scaled)
-        self.activity = self.input_gain * value
-
-
-@dataclass
-class StandardNeuron(BaseNeuron):
-    """
-    Internal processing neuron (for now: feedforward/recurrent only).
-    Can later add gating/lateral inhibition hooks.
-    """
-    bias: float = 0.0
-
-    def step(self, input_signals_and_weights: Iterable[tuple[str, float]]) -> None:
-        f = self.synaptic_input(input_signals_and_weights) + self.bias
-        self.activity = (1.0 - self.decay) * self.activity + (f / (abs(f) + 1.0))
-
-
-@dataclass
-class EffectorNeuron(BaseNeuron):
-    """
-    Output-map neuron (F_z): converts activity to task-specific output score.
-    """
-    output_label: int = 0  # e.g., MNIST class 0..9
-    readout_gain: float = 1.0
-
-    def readout(self) -> float:
-        # value used in V(k) aggregation
-        return self.readout_gain * sigma(self.activity)
+    @classmethod
+    def create_neurons(cls, n: int, activity_reset: float = -0.2, initial_activity: float = 0.0) -> List[Neuron]:
+        return [cls(index=i, activity_reset=activity_reset, initial_activity=initial_activity) for i in range(n)]
