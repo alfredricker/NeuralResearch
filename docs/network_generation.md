@@ -3,7 +3,6 @@ At a fundamental level, the network is just neurons connected to other neurons, 
 
 Template:
 INPUT DOMAINS:
-You must define how to translate all your domains into regions. That is, for each domain, define a global sensory map as well as one or more local sensory maps.
 A region template for example would have an id prefix, a local sensory map, and a defined initial number of omega neurons, z neurons, M neurons, etc. You must also define the edge pattern between neurons.
 Once you have your input templates, you define the L_S layer, which is how many of each template there is to be. When you input domain data of a given type into the system, it activates the appropriate region types and neurons defined by the maps.
 
