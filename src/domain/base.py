@@ -24,18 +24,14 @@ class Domain:
     def __init__(
         self,
         activity_tensor_shape: Tuple[int, ...],
-        neurons_per_point: int,
         discrete_set_cardinality: int,
         value_range: Tuple[float, float] = (0.0, 1.0),
         discrete_order: Iterable[int] | None = None,
     ):
         self.activity_tensor_shape = activity_tensor_shape
-        self.neurons_per_point = neurons_per_point # number of neurons that receive a given item in the set
         self.discrete_set_cardinality = discrete_set_cardinality # number of items in the discrete set
         self.value_range = value_range
 
-        if self.neurons_per_point < 1:
-            raise ValueError("neurons_per_point must be >= 1")
         if self.discrete_set_cardinality < 1:
             raise ValueError("discrete_set_cardinality must be >= 1")
         if self.discrete_set_cardinality > MAX_DISCRETE_CARDINALITY:
@@ -92,7 +88,4 @@ class Domain:
 
     def discrete_order(self) -> List[int]:
         return list(self._discrete_order)
-
-    def omega_neuron_count(self) -> int:
-        return self.discrete_set_cardinality * self.neurons_per_point
 
