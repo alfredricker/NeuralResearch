@@ -1,6 +1,7 @@
-import torch
+from dataclasses import dataclass
 
+@dataclass
 class Edge:
-    weight: torch.float32
+    weight: float
     incident_id: str
     terminal_id: str
