@@ -4,41 +4,38 @@ from typing import Dict, List
 from src.group.port import InputPortBinding, InputPortSpec
 from src.neuron.neuron import Neuron
 from src.neuron.edge import Edge
-from src.neuron.edge_topology import RingTopology, EdgeTopology
-
+from src.neuron.edge_topology import EdgeTopology
+from abc import ABC, abstractmethod
 
 class Group:
-    def __init__(self, n: int, theta: float, id: str,
-        recurrent_topology: EdgeTopology = RingTopology):
+    def __init__(self, n: int, theta: float, group_index: int, group_type: str,
+        recurrent_topology: EdgeTopology | None = None):
         self.n = n
         self.theta = theta
         self.neurons = Neuron.create_neurons(n, theta)
-        self.group_id = id
-        self.group_type = self._infer_group_type()
+        self.group_type = group_type
+        self.group_id = f'{group_type}{group_index}'
 
         # recurrent structure
         self.recurrent_topology: EdgeTopology = recurrent_topology
         self.recurrent_edges: list[Edge] = self.build_recurrent_edges()
         
         # input structure
-        self.input_edges: list[Edge] = []
         self._input_bindings: Dict[str, list[InputPortBinding]] = {
             name: [] for name in self.expected_input_ports().keys()
         }
 
-    def expected_input_ports(self) -> Dict[str, InputPortSpec]:
-        return {}
-
-    def _infer_group_type(self) -> str:
-        cls_name = self.__class__.__name__.lower()
-        if cls_name.endswith("group"):
-            cls_name = cls_name[:-5]
-        return cls_name
+    @abstractmethod
+    def expected_input_ports(self) -> dict[str, InputPortSpec]:
+        pass
 
     def build_recurrent_edges(
         self,
         weight: float = 1.0,
     ) -> None:
+        # IF no recurrent topology is provided, no recurrent edges are built
+        if self.recurrent_topology is None:
+            return
         src_ids = [neuron.id for neuron in self.neurons]
         dst_ids = src_ids
         self.recurrent_edges = self.recurrent_topology.make_edges(src_ids=src_ids, dst_ids=dst_ids, weight=weight)
