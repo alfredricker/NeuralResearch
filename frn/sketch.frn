@@ -1,0 +1,35 @@
+new domain mnist {
+    test_path: ../data/MNIST/test.parquet;
+    discrete_dim: 28*28;
+    labels: 10;
+};
+
+// l0 regions should always contain domain_id
+l0 {
+    snw {
+        domain_id: mnist;
+        n_regions: 10; // number of snw regions in this layer
+        n_neurons: 100; // number of neurons per region
+    };
+};
+
+l[1:5] {
+    t {
+        n_regions: 8;
+        n_neurons: 100;
+    };
+
+    tnw {
+        n_regions: 2;
+        n_neurons: 50;
+    };
+};
+
+Z {
+    domain_id: mnist;
+    read_from: z=;             // selector grammar you defined
+    decode: argmax;
+    neurons_per_label: 8;
+    aggregate: sum;
+    strict_capacity: true;     // fail if not enough Z neurons
+};
