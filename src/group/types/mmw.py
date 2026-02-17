@@ -11,4 +11,5 @@ class MMWGroup(Group):
     def expected_input_ports(self) -> dict[str, InputPortSpec]:
         return {
             "ff_from_omega": InputPortSpec(source_type="omega="),
+            "lateral_from_m": InputPortSpec(source_type="m|"),
         }

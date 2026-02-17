@@ -16,4 +16,5 @@ class MGroup(Group):
             "ff_from_omega": InputPortSpec(source_type="omega="),
             "gating_from_w": InputPortSpec(source_type="w="),
             #"fb_from_z": InputPortSpec(source_type="z="),
+            "lateral_from_m": InputPortSpec(source_type="m|")
         }
