@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from typing import Dict, List
-from src.group.port import InputPortBinding, InputPortSpec
-from src.neuron.neuron import Neuron
-from src.neuron.edge import Edge
-from src.neuron.edge_topology import EdgeTopology
+from src.cortical.group.port import InputPortBinding, InputPortSpec
+from src.cortical.neuron.neuron import Neuron
+from src.cortical.neuron.edge import Edge
+from src.cortical.neuron.edge_topology import EdgeTopology
 from abc import ABC, abstractmethod
 
 class Group:

@@ -1,5 +1,5 @@
-from src.group.base import Group
-from src.group.base import InputPortSpec
+from src.cortical.group.base import Group
+from src.cortical.group.base import InputPortSpec
 
 # GROUP FOR FORMING Z GROUPS WITHIN A REGION
 

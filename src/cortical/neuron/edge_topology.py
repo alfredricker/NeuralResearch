@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
 
-from src.neuron.edge import Edge
+from src.cortical.neuron.edge import Edge
 
 
 class EdgeTopology(ABC):
@@ -125,7 +125,7 @@ class StochasticTopology(EdgeTopology):
                     if sid in selected_src:
                         continue
                     if rng.random() < self.extra_connection_prob:
-                        selected_src.add(sid)
+                        selected_src.cortical.add(sid)
             for sid in selected_src:
                 pairs.add((sid, did))
         return sorted(pairs)

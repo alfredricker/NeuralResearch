@@ -1,6 +1,6 @@
-from src.group.base import Group
-from src.group.base import InputPortSpec
-from src.neuron.edge_topology import RingTopology
+from src.cortical.group.base import Group
+from src.cortical.group.base import InputPortSpec
+from src.cortical.neuron.edge_topology import RingTopology
 
 # GROUP FOR FORMING ABSTRACT MODELS WITHIN A REGION
 

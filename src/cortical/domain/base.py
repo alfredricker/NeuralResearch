@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Iterable, List, Tuple
-from src.settings import MAX_DISCRETE_CARDINALITY
 import numpy as np
 
 '''
@@ -19,6 +18,8 @@ This class should encapsulate:
 - cardinality validation
 - discrete order validation
 '''
+
+MAX_DISCRETE_CARDINALITY = 10_000
 
 class Domain:
     def __init__(
@@ -44,28 +45,6 @@ class Domain:
             self._discrete_order = list(range(self.discrete_set_cardinality))
         else:
             self._discrete_order = list(discrete_order)
-        self._validate_discrete_order()
-
-    def _validate_discrete_order(self) -> None:
-        if len(self._discrete_order) != self.discrete_set_cardinality:
-            raise ValueError(
-                "discrete_order length must equal discrete_set_cardinality "
-                f"({len(self._discrete_order)} != {self.discrete_set_cardinality})"
-            )
-        if len(set(self._discrete_order)) != self.discrete_set_cardinality:
-            raise ValueError("discrete_order must contain unique indices")
-        if set(self._discrete_order) != set(range(self.discrete_set_cardinality)):
-            raise ValueError(
-                "discrete_order must be a permutation of [0, discrete_set_cardinality)"
-            )
-
-    def validate_cardinality(self) -> None:
-        activity_size = int(np.prod(self.activity_tensor_shape))
-        if activity_size > 0 and activity_size != self.discrete_set_cardinality:
-            raise ValueError(
-                "activity_tensor_shape cardinality and discrete_set_cardinality mismatch "
-                f"({activity_size} != {self.discrete_set_cardinality})"
-            )
 
     def normalize_activity(self, sample: np.ndarray) -> np.ndarray:
         arr = np.asarray(sample, dtype=np.float32)
@@ -85,7 +64,4 @@ class Domain:
 
         scaled = (arr - min_val) / (max_val - min_val)
         return lo + scaled * (hi - lo)
-
-    def discrete_order(self) -> List[int]:
-        return list(self._discrete_order)
 

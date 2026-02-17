@@ -1,4 +1,4 @@
-from src.neuron.edge_topology import DenseTopology, RingTopology, StochasticTopology
+from src.cortical.neuron.edge_topology import DenseTopology, RingTopology, StochasticTopology
 
 # Example neuron ids from two groups
 src_ids = [f"m0_{i}" for i in range(8)]     # source group neurons

@@ -1,9 +1,9 @@
-from src.group.types.m import MGroup
-from src.group.types.mmw import MMWGroup
-from src.group.types.omega import OmegaGroup
-from src.group.types.w import WGroup
-from src.group.types.z import ZGroup
-from src.group.types.zmw import ZMWGroup
+from src.cortical.group.types.m import MGroup
+from src.cortical.group.types.mmw import MMWGroup
+from src.cortical.group.types.omega import OmegaGroup
+from src.cortical.group.types.w import WGroup
+from src.cortical.group.types.z import ZGroup
+from src.cortical.group.types.zmw import ZMWGroup
 
 __all__ = [
     "MGroup",

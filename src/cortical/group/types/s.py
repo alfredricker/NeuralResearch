@@ -4,8 +4,8 @@
 # They do not have any gating mechanisms or hebbian learning rules.
 #######################################################################
 
-from src.group.base import Group
-from src.group.base import InputPortSpec
+from src.cortical.group.base import Group
+from src.cortical.group.base import InputPortSpec
 
 # GROUP FOR FORMING SENSORY GROUPS WITHIN A REGION
 

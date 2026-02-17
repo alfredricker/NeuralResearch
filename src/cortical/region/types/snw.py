@@ -2,10 +2,10 @@
 # SNW stands for Sensory No Where region -- no where neurons are present
 ##########################################################################
 
-from src.region.region import Region
-from src.group.types.omega import OmegaGroup
-from src.group.types.m import MGroup
-from src.group.types.z import ZGroup
+from src.cortical.region.region import Region
+from src.cortical.group.types.omega import OmegaGroup
+from src.cortical.group.types.m import MGroup
+from src.cortical.group.types.z import ZGroup
 
 class SNWRegion(Region):
     def __init__(self, region_index: int, size: int, theta: float):
