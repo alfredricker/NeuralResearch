@@ -8,13 +8,14 @@ from src.neuron.edge_topology import EdgeTopology
 from abc import ABC, abstractmethod
 
 class Group:
-    def __init__(self, n: int, theta: float, group_index: int, group_type: str,
+    def __init__(self, n: int, theta: float, group_type: str, group_index: int | None = None,
         recurrent_topology: EdgeTopology | None = None):
         self.n = n
         self.theta = theta
         self.neurons = Neuron.create_neurons(n, theta)
         self.group_type = group_type
-        self.group_id = f'{group_type}{group_index}'
+        group_index_str = f'{group_index}' if group_index is not None else ''
+        self.group_id = f'{group_type}{group_index_str}'
 
         # recurrent structure
         self.recurrent_topology: EdgeTopology = recurrent_topology
