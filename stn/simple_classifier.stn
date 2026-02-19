@@ -1,0 +1,8 @@
+subgraph omega(n) {
+    nodes(n);
+    // don't want an internal topology for omega
+}
+
+subgraph m(n) {
+    nodes(n);
+}

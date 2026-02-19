@@ -6,65 +6,113 @@ A network is a hierarchical directed graph. The language provides syntax for:
 - Declaring subgraph templates
 - Instantiating and nesting subgraphs
 - Defining connection topologies at any level of hierarchy
+- Specifying transforms (how nodes process inputs)
+- Specifying learning rules (how weights change)
 - Attaching external inputs and outputs
 
-The core principle: **topology declarations mirror subgraph structure recursively**.
+The core principle: **topology, transform, and learning declarations mirror subgraph structure recursively**.
+
+---
+
+## Defaults
+
+Set defaults at any scope. Inner scopes inherit and can override.
+```
+default topology: sparse(0.02);
+default transform: sigma(sum(inputs));
+default learn: hebbian(eta=0.01);
+default timescale: {
+    activation: 1,
+    weights: 1000,
+};
+```
+
+Defaults cascade inward. A default set at network level applies to all subgraphs unless overridden.
 
 ---
 
 ## Subgraphs
 
-A subgraph is a reusable template containing nodes or other subgraphs.
+A subgraph is a reusable template. There are two forms:
+- Leaf subgraph: declares only `nodes(...)` and optional behavior blocks.
+- Composite subgraph: declares subgraph components and wiring between them.
 
-### Basic syntax
+### Leaf subgraph syntax (nodes only)
+```
+subgraph <name>(<optional params>) {
+    nodes(<count>);
+
+    // optional
+    structure { ... }
+    transform { ... }
+    learn { ... }
+    timescale { ... }
+}
+```
+
+Leaf subgraphs cannot declare nested components (`name: other_subgraph;`) or ports.
+
+### Leaf subgraph example
+```
+subgraph m(n) {
+    nodes(n);
+
+    structure {
+        nodes -> nodes: sparse(0.02) & !identity;
+    }
+
+    transform {
+        nodes: sigma(sum(inputs));
+    }
+
+    learn {
+        nodes -> nodes: hebbian(eta=0.01, decay=0.0001);
+    }
+
+    timescale {
+        activation: 1,
+        weights: 1000,
+    }
+}
+```
+
+### Composite subgraph syntax (contains subgraphs)
 ```
 subgraph <name> {
-    <component>: <definition>;
+    <component>: <subgraph>(...);
+    <component>: <subgraph>[n];
     ...
-    
-    <internal wiring>
-    
+
+    structure { ... }
+    transform { ... }   // optional
+    learn { ... }       // optional
+
     port <name> = <component>;
     ...
 }
 ```
 
-### Leaf subgraph (contains nodes)
-```
-subgraph column {
-    omega: nodes(49);
-    m: nodes(500);
-    w: nodes(23);
-    z: nodes(100);
-    
-    // internal wiring
-    omega -> m: sparse(0.1);
-    m -> m: sparse(0.02) & !identity;
-    w -> m: gate;
-    m -> z: sparse(0.1);
-    
-    // exposed interfaces
-    port in = omega;
-    port out = z;
-    port lateral = m;
-    port feedback_in = omega;
-    port feedback_out = m;
-}
-```
-
-### Composite subgraph (contains subgraphs)
+### Composite subgraph example
 ```
 subgraph layer {
     cols: column[16];
     
-    // lateral wiring between columns
-    cols -> cols: ring(1) + ring(-1), {
-        lateral -> lateral: sparse(0.05),
-    };
+    structure {
+        cols -> cols: ring(1) + ring(-1), {
+            lateral -> lateral: sparse(0.05),
+        };
+    }
     
-    // expose aggregate ports
+    learn {
+        cols -> cols: {
+            lateral -> lateral: hebbian(eta=0.005),
+        };
+    }
+    
     port in = cols[*].in;
     port out = cols[*].out;
+    port feedback_in = cols[*].feedback_in;
+    port feedback_out = cols[*].feedback_out;
 }
 ```
 
@@ -73,19 +121,35 @@ subgraph layer {
 subgraph cortex {
     layers: layer[4];
     
-    // feedforward
-    layers[i] -> layers[i+1]: {
-        cols -> cols: all, {
-            out -> in: sparse(0.2),
-        }
-    };
+    structure {
+        // feedforward
+        layers[i] -> layers[i+1]: {
+            cols -> cols: all, {
+                out -> in: sparse(0.2),
+            }
+        };
+        
+        // feedback
+        layers[i+1] -> layers[i]: {
+            cols -> cols: all, {
+                feedback_out -> feedback_in: sparse(0.1),
+            }
+        };
+    }
     
-    // feedback
-    layers[i+1] -> layers[i]: {
-        cols -> cols: all, {
-            feedback_out -> feedback_in: sparse(0.1),
-        }
-    };
+    learn {
+        layers[i] -> layers[i+1]: {
+            cols -> cols: {
+                out -> in: hebbian(eta=0.01),
+            }
+        };
+        
+        layers[i+1] -> layers[i]: {
+            cols -> cols: {
+                feedback_out -> feedback_in: modulated_hebbian(eta=0.01, signal=prediction_error),
+            }
+        };
+    }
     
     port in = layers[0].in;
     port out = layers[3].out;
@@ -108,7 +172,6 @@ Topologies define connection patterns between node sets.
 | `sparse(p)` | each pair connected with probability p |
 | `k_random(k)` | each target receives exactly k random sources |
 | `ring(d)` | source[i] to target[(i+d) mod n] |
-| `gate` | gating connection (multiplicative rather than additive) |
 
 ### Combinators
 
@@ -127,25 +190,308 @@ sparse(0.1) & !identity     // sparse, no self-connections
 
 ---
 
+## Transforms
+
+Transforms define how nodes compute their activation from inputs.
+
+### Syntax
+
+In a `transform` block, specify per-node or per-connection transforms:
+```
+transform {
+    <node_group>: <activation_function>;
+    <source> -> <target>: <connection_transform>;
+}
+```
+
+### Activation primitives
+
+| Syntax | Meaning |
+|--------|---------|
+| `identity` | output = input (for input nodes) |
+| `sum(inputs)` | linear sum of weighted inputs |
+| `sigma(x)` | saturating nonlinearity: x / (\|x\| + 1) |
+| `relu(x)` | max(0, x) |
+| `tanh(x)` | hyperbolic tangent |
+| `sigmoid(x)` | 1 / (1 + exp(-x)) |
+| `phase_ring` | ring attractor dynamics for grid cells |
+
+### Composable transforms
+```
+sigma(sum(inputs))              // saturated sum
+sigma(sum(inputs) - inhibition) // with lateral inhibition
+gated(w, sigma(sum(inputs)))    // multiplicative gating by w
+```
+
+### Gating
+
+The `gated` transform multiplies input by a gating signal:
+```
+transform {
+    m: gated(w, sigma(sum(inputs)));
+}
+```
+
+This means: m's activation = g(w_signal) * sigma(sum of feedforward inputs), where g is a gating function (e.g., g(x) = x² / (x² + θ²)).
+
+### Inhibition
+
+Lateral inhibition enforces sparsity:
+```
+transform {
+    m: sigma(sum(inputs) - kappa * total_activity(m));
+}
+```
+
+`total_activity(m)` is the sum of activations across all m nodes.
+
+### Full activation dynamics
+
+For explicit control over the update equation:
+```
+transform {
+    m: dynamics {
+        tau: 1,
+        leak: 0.1,
+        update: (1 - leak) * prev + sigma(sum(inputs) - kappa * total_activity(m)),
+    };
+}
+```
+
+### Custom transforms
+```
+fn gated_saturate(inputs, gate_inputs, params) {
+    let gate = gate_inputs.sum().pow(2) / (gate_inputs.sum().pow(2) + params.theta.pow(2));
+    let drive = inputs.weighted_sum();
+    let inhibition = params.kappa * inputs.total_activity();
+    return sigma(gate * drive - inhibition);
+}
+```
+
+Then use:
+```
+transform {
+    m: gated_saturate(theta=0.5, kappa=0.1);
+}
+```
+
+---
+
+## Learning Rules
+
+Learning rules define how weights change over time.
+
+### Syntax
+```
+learn {
+    <source> -> <target>: <rule>;
+}
+```
+
+### Primitive rules
+
+| Rule | Update formula | Description |
+|------|----------------|-------------|
+| `none` | Δw = 0 | Fixed weights, no learning |
+| `hebbian(eta)` | Δw = η · pre · post · (1 - w) | Fire together, wire together |
+| `hebbian(eta, decay)` | Δw = η · pre · post · (1 - w) - μ · w | With weight decay |
+| `anti_hebbian(eta)` | Δw = -η · pre · post · w | Decorrelation |
+| `oja(eta)` | Δw = η · post · (pre - w · post) | Normalized Hebbian |
+| `stdp(A_plus, A_minus, tau)` | Δw = f(Δt) | Spike-timing dependent |
+| `covariance(eta)` | Δw = η · (pre - E[pre]) · (post - E[post]) | Covariance rule |
+
+### Parameters
+
+| Parameter | Meaning | Typical range |
+|-----------|---------|---------------|
+| `eta` | Learning rate | 0.001 - 0.1 |
+| `decay` | Weight decay rate | 0.0001 - 0.001 |
+| `bounds` | Weight bounds | [-1, 1] or [0, 1] |
+| `tau` | Time constant for STDP | 10 - 50 ms |
+
+### Examples
+```
+learn {
+    omega -> m: hebbian(eta=0.01);
+    m -> m: hebbian(eta=0.01, decay=0.0001, bounds=[0, 1]);
+    w -> m: none;
+    m -> z: oja(eta=0.005);
+}
+```
+
+### Modulated learning
+
+Learning can be gated by a modulatory signal (reward, prediction error, attention):
+```
+learn {
+    omega -> m: hebbian(eta=0.01) * modulator(nu);
+}
+```
+
+Or declare the modulator at subgraph level:
+```
+subgraph column {
+    modulator nu: prediction_error;
+    
+    learn(modulated_by=nu) {
+        omega -> m: hebbian(eta=0.01);
+        m -> m: hebbian(eta=0.01);
+    }
+}
+```
+
+When `nu` is high, learning is amplified. When `nu` is low, learning is suppressed.
+
+### Modulator sources
+
+| Source | Meaning |
+|--------|---------|
+| `prediction_error` | Difference between predicted and actual input |
+| `reward` | External reward signal |
+| `attention` | Top-down attention signal |
+| `novelty` | Inverse familiarity |
+| `custom(signal_name)` | User-defined signal |
+
+### Prediction error computation
+```
+subgraph column {
+    signal predicted = feedback_in.activation;
+    signal actual = omega.activation;
+    modulator error: magnitude(actual - predicted);
+    
+    learn(modulated_by=error) {
+        omega -> m: hebbian(eta=0.01);
+    }
+}
+```
+
+### Custom learning rules
+```
+fn my_hebbian(pre, post, w, params) {
+    let eta = params.eta;
+    let decay = params.decay ?? 0.0;
+    let bounds = params.bounds ?? [0.0, 1.0];
+    
+    let delta = eta * sigma(pre) * sigma(post) * (1.0 - w);
+    delta = delta - decay * w;
+    
+    return clamp(w + delta, bounds[0], bounds[1]);
+}
+```
+
+Use:
+```
+learn {
+    omega -> m: my_hebbian(eta=0.01, decay=0.0001);
+}
+```
+
+### Hierarchical learning
+
+Learning rules cascade through hierarchy:
+```
+learn {
+    layers[i] -> layers[i+1]: {
+        cols -> cols: {
+            out -> in: hebbian(eta=0.01),
+        }
+    };
+    
+    layers[i+1] -> layers[i]: {
+        cols -> cols: {
+            feedback_out -> feedback_in: anti_hebbian(eta=0.005),
+        }
+    };
+}
+```
+
+---
+
+## Timescales
+
+Separate fast dynamics (activation) from slow dynamics (learning).
+
+### Syntax
+```
+timescale {
+    activation: <tau>;
+    expectation: <tau>;
+    weights: <tau>;
+}
+```
+
+### Example
+```
+subgraph column {
+    timescale {
+        activation: 1,      // updates every tick
+        expectation: 100,   // running averages for learning signals
+        weights: 1000,      // weight updates 1000x slower than activation
+    }
+}
+```
+
+### Per-connection timescales
+```
+learn {
+    omega -> m: hebbian(eta=0.01), timescale(1000);
+    m -> m: hebbian(eta=0.001), timescale(10000);  // slower for recurrent
+}
+```
+
+---
+
+## Signals
+
+Signals are named values computed from network state, used for modulation or readout.
+
+### Syntax
+```
+signal <name> = <expression>;
+modulator <name>: <signal_expression>;
+```
+
+### Examples
+```
+signal total_m_activity = sum(m.activation);
+signal prediction = feedback_in.activation;
+signal error = magnitude(omega.activation - prediction);
+
+modulator nu: error;
+```
+
+### Built-in signal functions
+
+| Function | Meaning |
+|----------|---------|
+| `sum(x)` | Sum of activations |
+| `mean(x)` | Mean activation |
+| `max(x)` | Maximum activation |
+| `magnitude(x)` | L2 norm |
+| `sparsity(x)` | Fraction of active units |
+
+---
+
 ## Wiring Syntax
 
 ### Basic form
 ```
-<source> -> <target>: <topology>;
+structure {
+    <source> -> <target>: <topology>;
+}
 ```
 
 ### Hierarchical form
 
 When source and target contain substructure, topology must specify how subcomponents connect:
 ```
-<source> -> <target>: <inter_topology>, {
-    <sub_source> -> <sub_target>: <topology>;
-    ...
-};
+structure {
+    <source> -> <target>: <inter_topology>, {
+        <sub_source> -> <sub_target>: <topology>;
+        ...
+    };
+}
 ```
-
-The `inter_topology` determines which subgraph pairs connect.
-The nested block determines how nodes within each pair connect.
 
 ### Directionality rule
 
@@ -154,38 +500,47 @@ The nested block determines how nodes within each pair connect.
 The arrow direction cascades through all nesting levels.
 
 ### Index expressions
-```
-cols[i] -> cols[i+1]    // each column to its successor
-cols[i] -> cols[i-1]    // each column to its predecessor  
-cols[*]                 // all columns (for port aggregation)
-layers[0]               // specific index
-```
+
+| Syntax | Meaning |
+|--------|---------|
+| `cols[i]` | The i-th column (loop variable) |
+| `cols[i+1]` | Successor of i-th column |
+| `cols[i-1]` | Predecessor of i-th column |
+| `cols[*]` | All columns (for port aggregation) |
+| `cols[0]` | First column (literal index) |
+| `layers[i] -> layers[i+1]` | Each layer to its successor |
 
 ### Examples
 
 Same-level lateral connections:
 ```
-cols -> cols: ring(1), {
-    m -> m: sparse(0.05),
-};
+structure {
+    cols -> cols: ring(1) + ring(-1), {
+        lateral -> lateral: sparse(0.05),
+    };
+}
 ```
 
 Cross-level feedforward:
 ```
-layers[i] -> layers[i+1]: {
-    cols -> cols: all, {
-        z -> omega: sparse(0.2),
-    }
-};
+structure {
+    layers[i] -> layers[i+1]: {
+        cols -> cols: all, {
+            out -> in: sparse(0.2),
+        }
+    };
+}
 ```
 
 Cross-level feedback:
 ```
-layers[i+1] -> layers[i]: {
-    cols -> cols: identity, {
-        m -> omega: sparse(0.1),
-    }
-};
+structure {
+    layers[i+1] -> layers[i]: {
+        cols -> cols: identity, {
+            feedback_out -> feedback_in: sparse(0.1),
+        }
+    };
+}
 ```
 
 ---
@@ -200,84 +555,175 @@ input <name>: <type>;
 output <name>: <type>;
 ```
 
-Types include:
-- `Image(h, w)` - 2D image
-- `Image(h, w, c)` - 2D image with channels
-- `Sequence(n)` - 1D sequence
-- `Class(n)` - classification into n categories
-- `Vector(n)` - n-dimensional vector
+### Input/Output types
+
+| Type | Description |
+|------|-------------|
+| `Image(h, w)` | 2D grayscale image |
+| `Image(h, w, c)` | 2D image with c channels |
+| `Sequence(n)` | 1D sequence of length n |
+| `Sequence(*, vocab)` | Variable-length sequence over vocabulary |
+| `Class(n)` | Classification into n categories |
+| `Vector(n)` | n-dimensional real vector |
+| `Scalar` | Single real value |
 
 ### Input wiring
 
 Input requires a **spatial mapping** to distribute data across subgraphs, then **topology** for node-level connections.
 ```
-<input> -> <target>: <spatial_mapping>, {
-    <input_component> -> <target_component>: <topology>;
-};
+structure {
+    <input> -> <target>: <spatial_mapping>, {
+        <input_component> -> <target_component>: <topology>;
+    };
+}
 ```
 
-Spatial mappings:
-| Syntax | Meaning |
-|--------|---------|
-| `patch(h, w)` | partition into non-overlapping patches |
-| `patch(h, w, overlap=n)` | overlapping patches |
-| `stride(h, w, step_h, step_w)` | strided windows |
-| `broadcast` | same input to all targets |
+### Spatial mappings
 
-Example:
+| Mapping | Meaning |
+|---------|---------|
+| `patch(h, w)` | Partition into non-overlapping h×w patches |
+| `patch(h, w, overlap=n)` | Overlapping patches with n pixels overlap |
+| `stride(h, w, step_h, step_w)` | Strided windows |
+| `broadcast` | Same input to all targets |
+| `identity` | Direct 1-to-1 mapping |
+
+### Input example
 ```
 input MNIST: Image(28, 28);
 
-MNIST -> layers[0].cols: patch(7, 7, overlap=2), {
-    pixels -> omega: identity,
-};
+structure {
+    MNIST -> layers[0].cols: patch(7, 7, overlap=2), {
+        pixels -> in: identity,
+    };
+}
 ```
-
-This partitions the 28x28 image into overlapping 7x7 patches, one per column, then wires each patch's pixels directly to that column's omega nodes.
 
 ### Output wiring
 
 Output requires an **aggregation mapping** to collect from subgraphs, then **topology** for node-level connections.
 ```
-<source> -> <output>: <aggregation>, {
-    <source_component> -> <output_component>: <topology>;
-};
+structure {
+    <source> -> <output>: <aggregation>, {
+        <source_component> -> <output_component>: <topology>;
+    };
+}
 ```
 
-Aggregations:
-| Syntax | Meaning |
-|--------|---------|
-| `pool` | all sources contribute to single output |
-| `concat` | concatenate source outputs |
-| `spatial(h, w)` | arrange outputs spatially |
+### Aggregations
 
-Example:
+| Aggregation | Meaning |
+|-------------|---------|
+| `pool` | All sources contribute to single output |
+| `concat` | Concatenate source outputs |
+| `spatial(h, w)` | Arrange outputs spatially |
+| `vote` | Consensus voting across sources |
+
+### Output transforms
+
+| Transform | Meaning |
+|-----------|---------|
+| `weighted_sum` | Weighted sum of inputs |
+| `softmax` | Softmax normalization |
+| `argmax` | Index of maximum |
+| `threshold(t)` | Binary threshold |
+
+### Output example
 ```
 output classification: Class(10);
 
-layers[2].cols -> classification: pool, {
-    z -> logits: weighted_sum,
-};
-```
+structure {
+    layers[2].cols -> classification: pool, {
+        out -> logits: weighted_sum,
+    };
+}
 
-This pools all columns' z neurons into a single vote, using weighted sum to produce 10 class logits.
+transform {
+    classification: softmax;
+}
+```
 
 ---
 
 ## Complete Example
 ```
-// Node group templates
+// Global defaults
+default topology: sparse(0.02);
+default transform: sigma(sum(inputs));
+default learn: hebbian(eta=0.01);
+
+// Leaf subgraphs
+subgraph omega(n) {
+    nodes(n);
+
+    transform {
+        nodes: identity;
+    }
+}
+
+subgraph m(n) {
+    nodes(n);
+
+    structure {
+        nodes -> nodes: sparse(0.02) & !identity;
+    }
+
+    transform {
+        nodes: sigma(sum(inputs) - kappa * total_activity(nodes));
+    }
+
+    learn(modulated_by=prediction_error) {
+        nodes -> nodes: hebbian(eta=0.01, decay=0.0001);
+    }
+
+    timescale {
+        activation: 1,
+        weights: 1000,
+    }
+}
+
+subgraph w(n) {
+    nodes(n);
+
+    transform {
+        nodes: phase_ring([5, 7, 11]);
+    }
+}
+
+subgraph z(n) {
+    nodes(n);
+}
+
+// Composite subgraph
 subgraph column {
-    omega: nodes(49);
-    m: nodes(500);
-    w: nodes(23);
-    z: nodes(100);
+    omega: omega(49);
+    m: m(500);
+    w: w(23);
+    z: z(100);
     
-    omega -> m: sparse(0.1);
-    m -> m: sparse(0.02) & !identity;
-    w -> m: gate;
-    m -> z: sparse(0.1);
+    // Signals for modulation
+    signal predicted = feedback_in.activation;
+    signal actual = omega.activation;
+    modulator prediction_error: magnitude(actual - predicted);
     
+    structure {
+        omega -> m: sparse(0.1);
+        m -> m: sparse(0.02) & !identity;
+        w -> m: all;
+        m -> z: sparse(0.1);
+    }
+    
+    transform {
+        m: gated(w, m);
+        z: sigma(sum(inputs));
+    }
+
+    learn(modulated_by=prediction_error) {
+        omega -> m: hebbian(eta=0.01);
+        w -> m: none;
+        m -> z: hebbian(eta=0.01);
+    }
+
     port in = omega;
     port out = z;
     port lateral = m;
@@ -285,12 +731,21 @@ subgraph column {
     port feedback_out = m;
 }
 
+// Composite subgraph
 subgraph layer {
     cols: column[16];
     
-    cols -> cols: ring(1) + ring(-1), {
-        lateral -> lateral: sparse(0.05),
-    };
+    structure {
+        cols -> cols: ring(1) + ring(-1), {
+            lateral -> lateral: sparse(0.05),
+        };
+    }
+    
+    learn {
+        cols -> cols: {
+            lateral -> lateral: hebbian(eta=0.005),
+        };
+    }
     
     port in = cols[*].in;
     port out = cols[*].out;
@@ -306,29 +761,53 @@ output classification: Class(10);
 network MNISTClassifier {
     layers: layer[3];
     
-    // Input
-    MNIST -> layers[0]: patch(7, 7, overlap=2), {
-        pixels -> in: identity,
-    };
+    structure {
+        // Input
+        MNIST -> layers[0]: patch(7, 7, overlap=2), {
+            pixels -> in: identity,
+        };
+        
+        // Feedforward
+        layers[i] -> layers[i+1]: {
+            cols -> cols: all, {
+                out -> in: sparse(0.2),
+            }
+        };
+        
+        // Feedback
+        layers[i+1] -> layers[i]: {
+            cols -> cols: all, {
+                feedback_out -> feedback_in: sparse(0.1),
+            }
+        };
+        
+        // Output
+        layers[2] -> classification: pool, {
+            out -> logits: weighted_sum,
+        };
+    }
     
-    // Feedforward
-    layers[i] -> layers[i+1]: {
-        cols -> cols: all, {
-            out -> in: sparse(0.2),
-        }
-    };
+    transform {
+        classification: softmax;
+    }
     
-    // Feedback
-    layers[i+1] -> layers[i]: {
-        cols -> cols: all, {
-            feedback_out -> feedback_in: sparse(0.1),
-        }
-    };
-    
-    // Output
-    layers[2] -> classification: pool, {
-        out -> logits: weighted_sum,
-    };
+    learn {
+        layers[i] -> layers[i+1]: {
+            cols -> cols: {
+                out -> in: hebbian(eta=0.01),
+            }
+        };
+        
+        layers[i+1] -> layers[i]: {
+            cols -> cols: {
+                feedback_out -> feedback_in: anti_hebbian(eta=0.005),
+            }
+        };
+        
+        layers[2] -> classification: {
+            out -> logits: hebbian(eta=0.02),
+        };
+    }
 }
 ```
 
@@ -336,17 +815,29 @@ network MNISTClassifier {
 
 ## Summary
 
-| Concept | Syntax |
-|---------|--------|
+| Block | Purpose | Scope |
+|-------|---------|-------|
+| `structure { }` | Define which connections exist | subgraph, network |
+| `transform { }` | Define how nodes compute activations | subgraph, network |
+| `learn { }` | Define how weights update | subgraph, network |
+| `timescale { }` | Define update rates | subgraph |
+| `signal` | Named computed value | subgraph |
+| `modulator` | Learning rate modulation | subgraph |
+| `default` | Set defaults for nested scopes | any |
+
+| Declaration | Syntax |
+|-------------|--------|
 | Define subgraph | `subgraph name { ... }` |
-| Create nodes | `name: nodes(n);` |
+| Create leaf nodes | `nodes(n);` |
+| Instantiate parameterized subgraph | `name: other_subgraph(args);` |
 | Instantiate subgraph | `name: other_subgraph;` |
 | Array of subgraphs | `name: other_subgraph[n];` |
 | Expose port | `port name = component;` |
 | Aggregate port | `port name = components[*].port;` |
-| Wire (flat) | `a -> b: topology;` |
-| Wire (hierarchical) | `a -> b: inter, { x -> y: topo; };` |
 | Declare input | `input name: Type(...);` |
 | Declare output | `output name: Type(...);` |
-| Input wiring | `input -> target: spatial, { ... };` |
-| Output wiring | `source -> output: aggregation, { ... };` |
+| Wire (flat) | `a -> b: topology;` |
+| Wire (hierarchical) | `a -> b: inter, { x -> y: topo; };` |
+| Node transform | `node: function;` |
+| Connection learning | `a -> b: rule(params);` |
+| Modulated learning | `learn(modulated_by=x) { ... }` |
