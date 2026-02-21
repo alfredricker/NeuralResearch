@@ -1,28 +1,38 @@
-// define the defaults of the graphs
-default topology: sparse(0.02);
-default transform: sigma(sum(inputs));
-default learn: hebbian(eta=0.01);
-default timescale: {
-    activation: 1,
-    weights: 1000,
-};
-
+// input graph
 subgraph omega(n) {
     nodes(n);
     // don't want an internal topology for omega
 }
 
+// modeling graph
 subgraph m(n) {
     nodes(n);
 }
 
+// output graph
 subgraph z(n) {
     nodes(n);
 }
 
-graph {
-    omega(28*28)
+// declare input and output
+input MNIST: Image(28,28) {
+    Image.pixel -> omega.nodes: biject;
 }
 
-// declare input
-input MNIST: Image(28,28)
+output classify: Class(10) {
+    z: pool -> logits: weighted_sum;
+}
+
+// graph declaration
+// Can do away with the structure {} block syntax. A mapping structure is implicit in the arrow notation ->
+graph {
+    omega(28*28);
+    m(500);
+    z(10);
+
+    omega -> m: sparse(0.4);
+    m -> z: sparse(0.4);
+}
+
+// now we have a static graph structure. the transforms are simply 1 and we use sparse mapping to go from the
+// 28*28 image input to a number between 1 and 10.
