@@ -1,3 +1,12 @@
+// define the defaults of the graphs
+default topology: sparse(0.02);
+default transform: sigma(sum(inputs));
+default learn: hebbian(eta=0.01);
+default timescale: {
+    activation: 1,
+    weights: 1000,
+};
+
 subgraph omega(n) {
     nodes(n);
     // don't want an internal topology for omega
@@ -6,3 +15,14 @@ subgraph omega(n) {
 subgraph m(n) {
     nodes(n);
 }
+
+subgraph z(n) {
+    nodes(n);
+}
+
+graph {
+    omega(28*28)
+}
+
+// declare input
+input MNIST: Image(28,28)
