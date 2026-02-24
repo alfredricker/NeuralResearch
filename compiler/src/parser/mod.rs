@@ -6,6 +6,7 @@ use error::ParseError;
 pub mod id;
 pub mod link;
 pub mod io;
+pub mod arg;
 
 #[derive(Debug)]
 pub struct Parser {

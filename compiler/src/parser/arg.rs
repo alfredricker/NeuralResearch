@@ -25,27 +25,43 @@ impl Parser {
             if i > 0 {
                 self.expect(Token::Comma)?;
             }
-            match arg {
-                ArgSpec::Float => {
-                    let value = self.parse_float()?;
-                    args.push(ArgValue::Float(value));
+            value = self._match_and_consume_arg(arg)?;
+            args.push(value);
+        }
+        if let Some(opt_spec) = opt_spec {
+            for (i, arg) in opt_spec {
+                if i > 0 {
+                    self.expect(Token::Comma)?;
                 }
-                ArgSpec::Int => {
-                    let value = self.parse_int()?;
-                    args.push(ArgValue::Int(value));
-                }
-                ArgSpec::Ident => {
-                    let value = self.parse_identifier()?;
-                    args.push(ArgValue::Ident(value));
-                }
-                ArgSpec::Optional(spec) => {
-                    let value = self.parse_paren_args(spec)?;
-                    args.push(ArgValue::Optional(value));
-                }
+                value = self._match_and_consume_arg(arg)?;
+                args.push(value);
             }
         }
         self.expect(Token::RParen)?;
         Ok(args)
+    }
+
+    fn _match_and_consume_arg(&mut self, arg: ArgSpec) -> Result<ArgValue, ParseError>{
+        match arg {
+            ArgSpec::Float => {
+                let value = self.parse_float()?;
+                Ok(ArgValue::Float(value))
+            }
+            ArgSpec::Int => {
+                let value = self.parse_int()?;
+                Ok(ArgValue::Int(value))
+            }
+            ArgSpec::Ident => {
+                let value = self.parse_identifier()?;
+                Ok(ArgValue::Ident(value))
+            }
+            ArgSpec::Optional(spec) => {
+                Err(ParseError::with_span(
+                    "Optional arguments not supported yet",
+                    self.pos.span.clone(),
+                ))
+            }
+        }
     }
 
     fn parse_int(&mut self) -> Result<u32, ParseError> {
