@@ -3,13 +3,13 @@ use crate::ast::link::*;
 #[derive(Debug, Clone)]
 pub struct GraphDecl {
     pub node_groups: Vec<NodeGroupDecl>,
-    pub edges: Vec<EdgeDecl>,
+    pub edges: Vec<LinkDecl>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SubgraphDecl {
     pub node_groups: Vec<NodeGroupDecl>,
-    pub edges: Vec<EdgeDecl>,
+    pub edges: Vec<LinkDecl>,
 }
 
 #[derive(Debug, Clone)]

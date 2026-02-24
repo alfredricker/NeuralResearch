@@ -1,4 +1,5 @@
-pub enum Functions {
+#[derive(Debug)]
+pub enum Function {
     // Mappings
     Identity,
     Sparse(f64),
@@ -60,7 +61,8 @@ pub enum Functions {
 }
 
 
-pub enum Operators {
+#[derive(Debug)]
+pub enum Operator {
     Add,
     Subtract,
     Multiply,

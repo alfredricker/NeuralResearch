@@ -7,8 +7,7 @@ pub struct InputDecl {
 
 #[derive(Debug, Clone)]
 enum InputKind {
-    Image(u32, u32),
-    RGBImage(u32, u32, Vec<f64>), // vec of channels
+    Image(u32, u32, Option<Vec<f32>>), // image h x w with optional rgb channels
     Text(String),
 }
 
