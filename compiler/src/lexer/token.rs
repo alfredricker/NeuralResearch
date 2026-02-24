@@ -1,6 +1,6 @@
 use logos::Logos;
 
-#[derive(Logos, Debug, PartialEq)]
+#[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")]
 pub enum Token {
     #[token("->")]
@@ -45,19 +45,4 @@ pub enum Token {
     Integer(u32),
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
-}
-
-pub fn lex(source: &str) -> Vec<Token> {
-    let mut lexer = Token::lexer(source);
-    let mut tokens = Vec::new();
-    while let Some(token) = lexer.next() {
-        match token {
-            Ok(tok) => tokens.push(tok),
-            Err(()) => {
-                let span = lexer.span();
-                panic!("Unexpected token near byte range {:?}", span);
-            }
-        }
-    }
-    tokens
 }

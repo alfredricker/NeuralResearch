@@ -1,3 +1,7 @@
+pub mod inputs;
+
+
+
 use crate::ast::{
     EdgeDecl, GraphDecl, InputDecl, LinkDecl, NodeGroupDecl, OutputDecl, Program, Topology,
 };
@@ -9,11 +13,14 @@ pub struct Parser {
     pos: usize,
 }
 
+
 impl Parser {
+    /// Creates a parser over a pre-tokenized STN stream.
     pub fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, pos: 0 }
     }
 
+    /// Parses a complete minimal STN program in top-level declaration order.
     pub fn parse_program(&mut self) -> Result<Program, String> {
         let input = self.parse_input_decl()?;
         let output = self.parse_output_decl()?;
@@ -32,6 +39,7 @@ impl Parser {
         })
     }
 
+    /// Parses `input <name>: Image(<w>, <h>);`.
     fn parse_input_decl(&mut self) -> Result<InputDecl, String> {
         self.expect_simple(Token::Input, "input")?;
         let name = self.expect_ident("input name")?;
@@ -50,6 +58,7 @@ impl Parser {
         })
     }
 
+    /// Parses `output <name>: Class(<n>);`.
     fn parse_output_decl(&mut self) -> Result<OutputDecl, String> {
         self.expect_simple(Token::Output, "output")?;
         let name = self.expect_ident("output name")?;
@@ -62,6 +71,7 @@ impl Parser {
         Ok(OutputDecl { name, classes })
     }
 
+    /// Parses `graph { ... }`, splitting body entries into node groups and edges.
     fn parse_graph_decl(&mut self) -> Result<GraphDecl, String> {
         self.expect_simple(Token::Graph, "graph")?;
         self.expect_simple(Token::LBrace, "{")?;
@@ -80,6 +90,7 @@ impl Parser {
         Ok(GraphDecl { node_groups, edges })
     }
 
+    /// Parses `<name>: nodes(<count>);` inside a graph block.
     fn parse_node_group_decl(&mut self) -> Result<NodeGroupDecl, String> {
         let name = self.expect_ident("node group name")?;
         self.expect_simple(Token::Colon, ":")?;
@@ -91,6 +102,7 @@ impl Parser {
         Ok(NodeGroupDecl { name, count })
     }
 
+    /// Parses `<from> -> <to>: <topology>;` inside a graph block.
     fn parse_edge_decl(&mut self) -> Result<EdgeDecl, String> {
         let from = self.expect_ident("edge source")?;
         self.expect_simple(Token::Arrow, "->")?;
@@ -101,6 +113,7 @@ impl Parser {
         Ok(EdgeDecl { from, to, topology })
     }
 
+    /// Parses top-level links from interfaces to graph nodes (or reverse).
     fn parse_link_decl(&mut self) -> Result<LinkDecl, String> {
         let from = self.expect_ident("link source")?;
         self.expect_simple(Token::Arrow, "->")?;
@@ -111,6 +124,7 @@ impl Parser {
         Ok(LinkDecl { from, to, topology })
     }
 
+    /// Parses topology forms like `sparse(0.4)`, `identity`, or `weighted_sum`.
     fn parse_topology(&mut self) -> Result<Topology, String> {
         match self.peek() {
             Some(Token::Sparse) => {
@@ -132,6 +146,7 @@ impl Parser {
         }
     }
 
+    /// Detects whether current position starts a node-group declaration.
     fn lookahead_is_node_group(&self) -> bool {
         matches!(
             (self.tokens.get(self.pos), self.tokens.get(self.pos + 1)),
@@ -139,10 +154,12 @@ impl Parser {
         )
     }
 
+    /// Checks whether the next token has the same variant as `t`.
     fn next_is(&self, t: &Token) -> bool {
         self.peek().is_some_and(|p| same_variant(p, t))
     }
 
+    /// Consumes and returns an identifier token.
     fn expect_ident(&mut self, what: &str) -> Result<String, String> {
         match self.bump() {
             Some(Token::Ident(s)) => Ok(s.clone()),
@@ -150,6 +167,7 @@ impl Parser {
         }
     }
 
+    /// Consumes and returns an integer token.
     fn expect_int(&mut self, what: &str) -> Result<u32, String> {
         match self.bump() {
             Some(Token::Integer(v)) => Ok(*v),
@@ -157,6 +175,7 @@ impl Parser {
         }
     }
 
+    /// Consumes and returns a float-like value (float or integer promoted to float).
     fn expect_float(&mut self, what: &str) -> Result<f64, String> {
         match self.bump() {
             Some(Token::Float(v)) => Ok(*v),
@@ -165,6 +184,7 @@ impl Parser {
         }
     }
 
+    /// Consumes a fixed punctuation/keyword token by variant.
     fn expect_simple(&mut self, expected: Token, label: &str) -> Result<(), String> {
         match self.bump() {
             Some(tok) if same_variant(tok, &expected) => Ok(()),
@@ -172,10 +192,12 @@ impl Parser {
         }
     }
 
+    /// Returns the current token without consuming it.
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }
 
+    /// Returns the current token and advances the cursor by one token.
     fn bump(&mut self) -> Option<&Token> {
         let t = self.tokens.get(self.pos);
         if t.is_some() {
@@ -185,6 +207,7 @@ impl Parser {
     }
 }
 
+/// Compares enum variants while ignoring any payload values.
 fn same_variant(a: &Token, b: &Token) -> bool {
     std::mem::discriminant(a) == std::mem::discriminant(b)
 }
