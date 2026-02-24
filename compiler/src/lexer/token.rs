@@ -40,12 +40,20 @@ pub enum Token {
     Output,
     #[token("nodes")]
     Nodes,
-    #[token("sparse")]
+
+    // topologies
+    #[token("Sparse")]
     Sparse,
-    #[token("identity")]
+    #[token("Identity")]
     Identity,
+    #[token("Dense")]
+    Dense,
+
+    // transforms
     #[token("weighted_sum")]
     WeightedSum,
+
+    // io types
     #[token("Image")]
     Image,
     #[token("Class")]

@@ -3,6 +3,10 @@ use crate::lexer::{SpannedToken, Token};
 pub mod error;
 use error::ParseError;
 
+pub mod id;
+pub mod link;
+pub mod io;
+
 #[derive(Debug)]
 pub struct Parser {
     tokens: Vec<SpannedToken>,
@@ -21,7 +25,7 @@ impl Parser {
         // statements should start with a keyword.
         let mut program = Program::new();
 
-        while let Some(tok) = self.peek_token() {
+        while let Some(tok) = self.peek_token(None) {
             let item = self.parse_item()?;
             program.push_item(item);
         }
@@ -31,7 +35,7 @@ impl Parser {
     }
 
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
-        match self.peek_token() {
+        match self.peek_token(None) {
             Some(Token::Graph) | Some(Token::Subgraph) | Some(Token::Top) | 
             Some(Token::Learn) | Some(Token::Display) => {
                 let block = self.parse_block()?;
@@ -44,7 +48,7 @@ impl Parser {
             }
 
             Some(Token::Ident(_)) => {
-                match (self.peek_token_n(1), self.peek_token_n(2)) {
+                match (self.peek_token(Some(1)), self.peek_token(Some(2))) {
                     (Some(Token::Arrow), _) => {
                         let stmt = self.parse_statement()?;
                         Ok(Item::Statement(stmt))
@@ -71,12 +75,8 @@ impl Parser {
         }
     }
 
-    fn peek_token(&self) -> Option<&Token> {
-        self.peek(None).map(|s| &s.token)
-    }
-
-    fn peek_token_n(&self, n: u32) -> Option<&Token> {
-        self.peek(Some(n)).map(|s| &s.token)
+    fn peek_token(&self, n: Option<u32>) -> Option<&Token> {
+        self.peek(n).map(|s| &s.token)
     }
 
     /// Returns the current token and advances the cursor by one token.
@@ -87,9 +87,26 @@ impl Parser {
         }
         t
     }
+
+    // Returns void and advances one token on success
+    fn expect(&mut self, expected: Token) -> Result<(), ParseError> {
+        let tok= self.peek_token(None);
+        match tok {
+            Some(a) => {
+                if same_variant(a, &expected){
+                    self.pos +=1;
+                    Ok(())
+                }
+                else {
+                    Err(ParseError::new("Expect token did not match"))
+                }
+            }
+            None => { Err(ParseError::new("Got None token for self.pos")) }
+        }
+    }
 }
 
 /// Compares enum variants while ignoring any payload values.
-fn same_variant(a: &SpannedToken, b: &SpannedToken) -> bool {
+fn same_variant(a: &Token, b: &Token) -> bool {
     std::mem::discriminant(a) == std::mem::discriminant(b)
 }
