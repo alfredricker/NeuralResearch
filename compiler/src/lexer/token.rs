@@ -20,6 +20,9 @@ pub enum Token {
     #[token(",")]
     Comma,
 
+    #[token("default")]
+    Default,
+
     #[token("graph")]
     Graph,
     #[token("input")]

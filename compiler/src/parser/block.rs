@@ -4,4 +4,5 @@ enum Block {
     Top,
     Learn,
     Display,
+    Transform,
 }

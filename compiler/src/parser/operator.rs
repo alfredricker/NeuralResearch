@@ -1,8 +1,22 @@
 pub enum Functions {
-    // Activation functions
+    // Mappings
     Identity,
     Sparse(f64),
+    Patch(u32,u32,Option<u32>),
+    Stride(u32,u32,u32,u32),
+    Broadcast,
+
+    // Aggregations
+    Pool,
+    Concat,
+    Spatial(u32,u32),
+    Vote,
+
+    // Activation / output transforms
     WeightedSum,
+    Argmax,
+    Softmax,
+    Threshold(f64),
 
     // Statistics functions
     Sum,
