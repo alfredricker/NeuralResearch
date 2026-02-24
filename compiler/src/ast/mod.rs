@@ -5,6 +5,6 @@ pub mod display;
 pub mod defaults;
 pub mod statement;
 pub mod block;
-
+pub use block::Item;
 pub mod program;
 pub use program::Program;

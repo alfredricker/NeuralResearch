@@ -1,16 +1,17 @@
-use crate::ast::graph::*;
-use crate::ast::io::*;
-use crate::ast::link::*;
-use crate::ast::display::*;
-use crate::ast::defaults::*;
-
+use crate::ast::Item;
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub graph: GraphDecl,
-    pub subgraphs: Vec<SubgraphDecl>,
-    pub inputs: Vec<InputDecl>,
-    pub outputs: Vec<OutputDecl>,
-    pub links: Vec<LinkDecl>,
-    pub display: Vec<DisplayDecl>,
-    pub defaults: Vec<DefaultDecl>,
+    items: Vec<Item>,
+}
+
+impl Program {
+    pub fn new() -> Self {
+        Self{
+            items: Vec::new(),
+        }
+    }
+
+    pub fn push_item(&mut self, item: Item) {
+        self.items.push(item);
+    }
 }

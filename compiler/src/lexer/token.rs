@@ -23,8 +23,17 @@ pub enum Token {
     #[token("default")]
     Default,
 
+    // scope declarations
     #[token("graph")]
     Graph,
+    #[token("subgraph")]
+    Subgraph,
+    #[token("learn")]
+    Learn,
+    #[token("display")]
+    Display,
+
+
     #[token("input")]
     Input,
     #[token("output")]
