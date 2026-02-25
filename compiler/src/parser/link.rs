@@ -30,7 +30,7 @@ impl Parser {
             // need to parse arguments from the sparse function
             Token::Sparse => {
                 let sparse_arg_specs = [ArgSpec::Float];
-                let args = self.parse_paren_args(&sparse_arg_specs, None)?;
+                let args = self.parse_args(&sparse_arg_specs, None)?;
 
                 let sparsity = match args.as_slice() {
                     [ArgValue::Float(v)] => *v,

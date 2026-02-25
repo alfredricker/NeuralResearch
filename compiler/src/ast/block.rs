@@ -9,7 +9,7 @@ pub enum Item {
 #[derive(Debug, Clone)]
 pub struct Block {
     pub kind: BlockKind,
-    pub code: Vec<Item>,
+    pub items: Vec<Item>,
 }
 
 #[derive(Debug, Clone)]

@@ -32,7 +32,8 @@ pub enum Token {
     Learn,
     #[token("display")]
     Display,
-
+    #[token("topology")]
+    Top,
 
     #[token("input")]
     Input,
@@ -56,8 +57,12 @@ pub enum Token {
     // io types
     #[token("Image")]
     Image,
+    #[token("Language")]
+    Language,
     #[token("Class")]
     Class,
+    #[token("Logits")]
+    Logits,
 
     #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().unwrap())]
     Float(f64),

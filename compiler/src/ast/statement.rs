@@ -1,9 +1,9 @@
-use crate::ast::{io::{OutputDecl,InputDecl},link::{LinkDecl}};
+use crate::ast::{io::{InputKind,OutputKind},link::{LinkDecl}};
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Input(InputDecl),
-    Output(OutputDecl),
+    Input(InputKind),
+    Output(OutputKind),
     Link(LinkDecl),
     Var(VarDecl),
 }

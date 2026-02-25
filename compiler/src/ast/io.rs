@@ -1,31 +1,17 @@
-
-
 #[derive(Debug, Clone)]
-pub struct InputDecl {
-    pub kind: InputKind,
+pub enum InputKind {
+    Image(u32, u32, Option<u32>), // image h x w with optional rgb channels
+    Language(u32), //token size
 }
 
 #[derive(Debug, Clone)]
-enum InputKind {
-    Image(u32, u32, Option<Vec<f32>>), // image h x w with optional rgb channels
-    Text(String),
-}
-
-#[derive(Debug, Clone)]
-pub struct OutputDecl {
-    kind: OutputKind,
-    method: Option<OutputMethod>,
-}
-
-#[derive(Debug, Clone)]
-enum OutputKind {
+pub enum OutputKind {
     Classifier(u32),
     Logits(u32),
-    Tensor(Vec<u32>),
 }
 
 #[derive(Debug, Clone)]
-enum OutputMethod {
+pub enum OutputMethod {
     Pool,
     Concat,
     Spatial,

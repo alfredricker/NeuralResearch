@@ -18,7 +18,7 @@ pub enum ArgValue {
 }
 
 impl Parser {
-    pub fn parse_paren_args(
+    pub fn parse_args(
         &mut self,
         req_spec: &[ArgSpec],
         opt_spec: Option<&[ArgSpec]>,
@@ -98,5 +98,14 @@ impl Parser {
                 spanned.span.clone(),
             ))
         }
+    }
+
+    pub fn single_uint_arg(&mut self) -> Result<u32,ParseError> {
+        let args = self.parse_args(&[ArgSpec::Int], None)?;
+        let size = match args.as_slice() {
+            [ArgValue::Int(v)] => *v,
+            _ => return Err(ParseError::new("Class(...) expects and int arg")),
+        };
+        Ok(size)
     }
 }

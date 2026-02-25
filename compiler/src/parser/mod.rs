@@ -6,6 +6,8 @@ use error::ParseError;
 pub mod link;
 pub mod io;
 pub mod arg;
+pub mod statement;
+pub mod block;
 
 #[derive(Debug)]
 pub struct Parser {
@@ -25,7 +27,7 @@ impl Parser {
         // statements should start with a keyword.
         let mut program = Program::new();
 
-        while let Some(tok) = self.peek_token(None) {
+        while let Some(_tok) = self.peek_token(None) {
             let item = self.parse_item()?;
             program.push_item(item);
         }
