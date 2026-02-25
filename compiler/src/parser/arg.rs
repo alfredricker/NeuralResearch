@@ -1,11 +1,12 @@
-use crate::parser::{Parser,ParseError};
+use crate::lexer::Token;
+use crate::parser::error::ParseError;
+use crate::parser::Parser;
 
 #[derive(Debug, Clone)]
 pub enum ArgSpec {
     Float,
     Int,
     Ident,
-    // Optional arg wrapper
     Optional(Box<ArgSpec>),
 }
 
@@ -16,51 +17,51 @@ pub enum ArgValue {
     Ident(String),
 }
 
-// needs to be finished -- handle opt_spec, move match arg to helper
 impl Parser {
-    pub fn parse_paren_args(&mut self, req_spec: &[ArgSpec], opt_spec: Option<&[ArgSpec]>) -> Result<Vec<ArgValue>, ParseError> {
-        self.expect(Token::LParen)?; // make sure starts with an LParen
+    pub fn parse_paren_args(
+        &mut self,
+        req_spec: &[ArgSpec],
+        opt_spec: Option<&[ArgSpec]>,
+    ) -> Result<Vec<ArgValue>, ParseError> {
+
+        // expect opening parenthesis
+        self.expect(Token::LParen)?;
         let mut args = Vec::new();
-        for (i, arg) in req_spec {
+
+        // required args: must all be present
+        for (i, arg) in req_spec.iter().enumerate() {
             if i > 0 {
                 self.expect(Token::Comma)?;
             }
-            value = self._match_and_consume_arg(arg)?;
+            let value = self.match_and_consume_arg(arg)?;
             args.push(value);
         }
+
+        // optional args: parse only if comma + value exists
         if let Some(opt_spec) = opt_spec {
-            for (i, arg) in opt_spec {
-                if i > 0 {
+            for arg in opt_spec.iter() {
+                if matches!(self.peek_token(None), Some(Token::Comma)) {
                     self.expect(Token::Comma)?;
+                    let value = self.match_and_consume_arg(arg)?;
+                    args.push(value);
+                } else {
+                    break;
                 }
-                value = self._match_and_consume_arg(arg)?;
-                args.push(value);
             }
         }
+
         self.expect(Token::RParen)?;
         Ok(args)
     }
 
-    fn _match_and_consume_arg(&mut self, arg: ArgSpec) -> Result<ArgValue, ParseError>{
+    fn match_and_consume_arg(&mut self, arg: &ArgSpec) -> Result<ArgValue, ParseError> {
         match arg {
-            ArgSpec::Float => {
-                let value = self.parse_float()?;
-                Ok(ArgValue::Float(value))
-            }
-            ArgSpec::Int => {
-                let value = self.parse_int()?;
-                Ok(ArgValue::Int(value))
-            }
-            ArgSpec::Ident => {
-                let value = self.parse_identifier()?;
-                Ok(ArgValue::Ident(value))
-            }
-            ArgSpec::Optional(spec) => {
-                Err(ParseError::with_span(
-                    "Optional arguments not supported yet",
-                    self.pos.span.clone(),
-                ))
-            }
+            ArgSpec::Float => Ok(ArgValue::Float(self.parse_float()?)),
+            ArgSpec::Int => Ok(ArgValue::Int(self.parse_int()?)),
+            ArgSpec::Ident => Ok(ArgValue::Ident(self.parse_identifier()?)),
+
+            // Keep this simple for now until you add a "missing optional" representation.
+            ArgSpec::Optional(inner) => self.match_and_consume_arg(inner),
         }
     }
 
@@ -74,27 +75,28 @@ impl Parser {
             )),
         }
     }
-    
+
     fn parse_float(&mut self) -> Result<f64, ParseError> {
         let tok = self.bump().ok_or_else(|| ParseError::new("Unexpected EOF"))?;
         match &tok.token {
             Token::Float(v) => Ok(*v),
-            Token::Integer(v) => Ok(*v as f64), // optional widening
+            Token::Integer(v) => Ok(*v as f64),
             other => Err(ParseError::with_span(
                 format!("Expected float, found {:?}", other),
                 tok.span.clone(),
             )),
         }
     }
-    
-    fn parse_identifier(&mut self) -> Result<String, ParseError> {
-        let tok = self.bump().ok_or_else(|| ParseError::new("Unexpected EOF"))?;
-        match &tok.token {
+
+    pub fn parse_identifier(&mut self) -> Result<String, ParseError> {
+        let spanned = self.bump().ok_or_else(|| ParseError::new("Unexpected EOF"))?;
+        
+        match &spanned.token {
             Token::Ident(name) => Ok(name.clone()),
             other => Err(ParseError::with_span(
                 format!("Expected identifier, found {:?}", other),
-                tok.span.clone(),
-            )),
+                spanned.span.clone(),
+            ))
         }
     }
 }

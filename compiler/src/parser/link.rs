@@ -1,4 +1,5 @@
 use crate::parser::{ParseError, Parser};
+use crate::parser::arg::{ArgSpec,ArgValue};
 use crate::ast::{link::{LinkDecl,Topology}, statement::Statement};
 use crate::lexer::Token;
 
@@ -17,7 +18,6 @@ impl Parser {
     }
 
     pub fn parse_topology(&mut self) -> Result<Topology, ParseError> {
-        let start = self.pos;
         let spanned = self.bump().ok_or_else(|| ParseError::new("Unexpected EOF"))?;
 
         match &spanned.token {
@@ -27,8 +27,21 @@ impl Parser {
             Token::Dense => {
                 Ok(Topology::Dense)
             }
+            // need to parse arguments from the sparse function
             Token::Sparse => {
-                
+                let sparse_arg_specs = [ArgSpec::Float];
+                let args = self.parse_paren_args(&sparse_arg_specs, None)?;
+
+                let sparsity = match args.as_slice() {
+                    [ArgValue::Float(v)] => *v,
+                    _ => {
+                        return Err(ParseError::new("Sparse() expects one float argument"))
+                    }
+                };
+                Ok(Topology::Sparse(sparsity))
+            }
+            _ => {
+                Err(ParseError::new("Expected a topology token"))
             }
         }
     }

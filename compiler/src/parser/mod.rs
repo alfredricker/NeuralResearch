@@ -3,7 +3,6 @@ use crate::lexer::{SpannedToken, Token};
 pub mod error;
 use error::ParseError;
 
-pub mod id;
 pub mod link;
 pub mod io;
 pub mod arg;
