@@ -1,6 +1,7 @@
 use crate::lexer::Token;
 use crate::parser::error::ParseError;
 use crate::parser::Parser;
+use crate::ast::expr::Expr;
 
 #[derive(Debug, Clone)]
 pub enum ArgSpec {
@@ -18,6 +19,8 @@ pub enum ArgValue {
 }
 
 impl Parser {
+    /// PARSE_ARGS is for typed, schema-driven parsing
+    /// known built ins
     pub fn parse_args(
         &mut self,
         req_spec: &[ArgSpec],
@@ -54,6 +57,32 @@ impl Parser {
         Ok(args)
     }
 
+    /// PARSE_GENERIC_ARGS is for arbitrary forms
+    /// (expr (, expr )* )
+    pub fn parse_generic_args(&mut self) -> Result<Vec<Expr>, ParseError> {
+        self.expect(Token::LParen)?;
+        let mut args = Vec::new();
+
+        if matches!(self.peek_token(None), Some(Token::RParen)) {
+            self.expect(Token::RParen)?;
+            return Ok(args);
+        }
+
+        loop {
+            args.push(self.parse_value_expr()?);
+
+            if matches!(self.peek_token(None), Some(Token::Comma)) {
+                self.expect(Token::Comma)?;
+                continue;
+            }
+
+            self.expect(Token::RParen)?;
+            break;
+        }
+
+        Ok(args)
+    }
+
     fn match_and_consume_arg(&mut self, arg: &ArgSpec) -> Result<ArgValue, ParseError> {
         match arg {
             ArgSpec::Float => Ok(ArgValue::Float(self.parse_float()?)),
@@ -65,7 +94,7 @@ impl Parser {
         }
     }
 
-    fn parse_int(&mut self) -> Result<u32, ParseError> {
+    pub fn parse_int(&mut self) -> Result<u32, ParseError> {
         let tok = self.bump().ok_or_else(|| ParseError::new("Unexpected EOF"))?;
         match &tok.token {
             Token::Integer(v) => Ok(*v),
@@ -76,7 +105,7 @@ impl Parser {
         }
     }
 
-    fn parse_float(&mut self) -> Result<f64, ParseError> {
+    pub fn parse_float(&mut self) -> Result<f64, ParseError> {
         let tok = self.bump().ok_or_else(|| ParseError::new("Unexpected EOF"))?;
         match &tok.token {
             Token::Float(v) => Ok(*v),

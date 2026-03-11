@@ -9,6 +9,7 @@ pub mod io;
 pub mod arg;
 pub mod statement;
 pub mod block;
+pub mod expr;
 
 #[derive(Debug)]
 pub struct Parser {
