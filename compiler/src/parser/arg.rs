@@ -104,7 +104,7 @@ impl Parser {
         let args = self.parse_args(&[ArgSpec::Int], None)?;
         let size = match args.as_slice() {
             [ArgValue::Int(v)] => *v,
-            _ => return Err(ParseError::new("Class(...) expects and int arg")),
+            _ => return Err(ParseError::new("Class(...) expects an int arg")),
         };
         Ok(size)
     }

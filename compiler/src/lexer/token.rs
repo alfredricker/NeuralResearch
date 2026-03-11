@@ -3,6 +3,8 @@ use logos::Logos;
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")]
 pub enum Token {
+    #[token("=")]
+    Equal,
     #[token("->")]
     Arrow,
     #[token("{")]
@@ -43,11 +45,11 @@ pub enum Token {
     Nodes,
 
     // topologies
-    #[token("Sparse")]
+    #[token("sparse")]
     Sparse,
-    #[token("Identity")]
+    #[token("identity")]
     Identity,
-    #[token("Dense")]
+    #[token("dense")]
     Dense,
 
     // transforms

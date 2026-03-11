@@ -4,6 +4,7 @@ pub mod error;
 use error::ParseError;
 
 pub mod link;
+pub mod var;
 pub mod io;
 pub mod arg;
 pub mod statement;

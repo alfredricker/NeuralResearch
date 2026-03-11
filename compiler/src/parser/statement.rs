@@ -9,10 +9,13 @@ impl Parser {
             Some(Token::Input) => self.parse_input_decl_statement(),   // should consume ';'
             Some(Token::Output) => self.parse_output_decl_statement(), // should consume ';'
             Some(Token::Ident(_)) => {
-                // ident-led: currently link form: a -> b : topology ;
+                // IDENTIFIER LINK form: a -> b : topology ;
                 if matches!(self.peek_token(Some(1)), Some(Token::Arrow)) {
                     self.parse_link_decl_stmt() // already consumes ';'
-                } else {
+                } else if matches!(self.peek_token(Some(1)), Some(Token::Colon)) {
+                    self.parse_var_decl_stmt() // already consumes ';'
+                }
+                else {
                     Err(ParseError::new("Unsupported identifier-led statement"))
                 }
             }
@@ -20,6 +23,5 @@ impl Parser {
             None => Err(ParseError::new("Unexpected EOF while parsing statement")),
         }
     }
-
 
 }
