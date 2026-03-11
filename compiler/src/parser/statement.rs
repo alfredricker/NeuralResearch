@@ -12,7 +12,7 @@ impl Parser {
                 // IDENTIFIER LINK form: a -> b : topology ;
                 if matches!(self.peek_token(Some(1)), Some(Token::Arrow)) {
                     self.parse_link_decl_stmt() // already consumes ';'
-                } else if matches!(self.peek_token(Some(1)), Some(Token::Colon)) {
+                } else if matches!(self.peek_token(Some(1)), Some(Token::Equal)) {
                     self.parse_var_decl_stmt() // already consumes ';'
                 }
                 else {

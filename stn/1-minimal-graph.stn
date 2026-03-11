@@ -2,9 +2,9 @@ input MNIST: Image(28, 28);
 output numbers: Class(10);
 
 graph {
-    omega: nodes(784);
-    m: nodes(500);
-    z: nodes(10);
+    omega = nodes(784);
+    m = nodes(500);
+    z = nodes(10);
     
     omega -> m: sparse(0.4);
     m -> z: sparse(0.4);
