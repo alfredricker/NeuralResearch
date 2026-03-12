@@ -11,4 +11,5 @@ pub enum Topology {
     Sparse(f64),
     Dense,
     Identity,
+    WeightedSum,
 }

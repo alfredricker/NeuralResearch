@@ -40,6 +40,14 @@ impl Parser {
                 self.bump();
                 Ok(Expr::Topology(crate::ast::expr::TopologyExpr::WeightedSum))
             }
+            Token::Nodes => {
+                self.bump();
+                let args = self.parse_generic_args()?;
+                Ok(Expr::Call(crate::ast::expr::CallExpr {
+                    name: "nodes".to_string(),
+                    args,
+                }))
+            }
 
             Token::Ident(_) => {
                 let name = self.parse_identifier()?;

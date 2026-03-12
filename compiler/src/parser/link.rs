@@ -27,6 +27,9 @@ impl Parser {
             Token::Dense => {
                 Ok(Topology::Dense)
             }
+            Token::WeightedSum => {
+                Ok(Topology::WeightedSum)
+            }
             // need to parse arguments from the sparse function
             Token::Sparse => {
                 let sparse_arg_specs = [ArgSpec::Float];

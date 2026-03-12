@@ -53,7 +53,7 @@ impl Parser {
 
             Some(Token::Ident(_)) => {
                 match (self.peek_token(Some(1)), self.peek_token(Some(2))) {
-                    (Some(Token::Arrow), _) => {
+                    (Some(Token::Arrow), _) | (Some(Token::Equal), _) => {
                         let stmt = self.parse_statement()?;
                         Ok(Item::Statement(stmt))
                     }

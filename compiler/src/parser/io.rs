@@ -1,13 +1,13 @@
 use crate::parser::{ParseError, Parser};
 use crate::parser::arg::{ArgSpec, ArgValue};
 use crate::ast::statement::Statement;
-use crate::ast::io::{InputKind, OutputKind};
+use crate::ast::io::{InputDecl, InputKind, OutputDecl, OutputKind};
 use crate::lexer::Token;
 
 impl Parser {
     pub fn parse_input_decl_statement(&mut self) -> Result<Statement, ParseError> {
         self.expect(Token::Input)?;
-        let _name = self.parse_identifier()?;
+        let name = self.parse_identifier()?;
         self.expect(Token::Colon)?;
 
         let kind = match self.peek_token(None) {
@@ -26,12 +26,12 @@ impl Parser {
         };
 
         self.expect(Token::Semi)?;
-        Ok(Statement::Input(kind))
+        Ok(Statement::Input(InputDecl { name, kind }))
     }
 
     pub fn parse_output_decl_statement(&mut self) -> Result<Statement, ParseError> {
         self.expect(Token::Output)?;
-        let _name = self.parse_identifier()?;
+        let name = self.parse_identifier()?;
         self.expect(Token::Colon)?;
 
         let kind = match self.peek_token(None) {
@@ -50,7 +50,7 @@ impl Parser {
         };
 
         self.expect(Token::Semi)?;
-        Ok(Statement::Output(kind))
+        Ok(Statement::Output(OutputDecl { name, kind }))
     }
 
     fn parse_image_args(&mut self) -> Result<(u32, u32, Option<u32>), ParseError> {

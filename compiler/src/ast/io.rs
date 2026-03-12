@@ -5,9 +5,21 @@ pub enum InputKind {
 }
 
 #[derive(Debug, Clone)]
+pub struct InputDecl {
+    pub name: String,
+    pub kind: InputKind,
+}
+
+#[derive(Debug, Clone)]
 pub enum OutputKind {
     Classifier(u32),
     Logits(u32),
+}
+
+#[derive(Debug, Clone)]
+pub struct OutputDecl {
+    pub name: String,
+    pub kind: OutputKind,
 }
 
 #[derive(Debug, Clone)]

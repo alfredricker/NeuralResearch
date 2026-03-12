@@ -9,6 +9,7 @@ impl Parser {
         let ident = self.parse_identifier()?;
         self.expect(Token::Equal)?;
         let expression =self.parse_value_expr()?;
+        self.expect(Token::Semi)?;
 
         let var_decl = VarDecl::new(ident, expression);
         Ok(Statement::Var(var_decl))

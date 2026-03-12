@@ -14,4 +14,8 @@ impl Program {
     pub fn push_item(&mut self, item: Item) {
         self.items.push(item);
     }
+
+    pub fn items(&self) -> &[Item] {
+        &self.items
+    }
 }
