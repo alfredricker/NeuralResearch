@@ -1,0 +1,50 @@
+   0.002883458s  INFO prepare_target{force=false package_id=stn_generated v0.1.0 (/Users/alfredricker/Project/neural/NeuralResearch/generated-rust) target="stn_generated"}: cargo::core::compiler::fingerprint: fingerprint error for stn_generated v0.1.0 (/Users/alfredricker/Project/neural/NeuralResearch/generated-rust)/Check { test: false }/TargetInner { name: "stn_generated", doc: true, ..: with_path("/Users/alfredricker/Project/neural/NeuralResearch/generated-rust/src/main.rs", Edition2021) }
+   0.002900250s  INFO prepare_target{force=false package_id=stn_generated v0.1.0 (/Users/alfredricker/Project/neural/NeuralResearch/generated-rust) target="stn_generated"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/alfredricker/Project/neural/NeuralResearch/generated-rust/target/debug/.fingerprint/stn_generated-e6a4958d26b2fa27/bin-stn_generated`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.011872708s  INFO prepare_target{force=false package_id=stn_generated v0.1.0 (/Users/alfredricker/Project/neural/NeuralResearch/generated-rust) target="stn_generated"}: cargo::core::compiler::fingerprint: fingerprint error for stn_generated v0.1.0 (/Users/alfredricker/Project/neural/NeuralResearch/generated-rust)/Check { test: true }/TargetInner { name: "stn_generated", doc: true, ..: with_path("/Users/alfredricker/Project/neural/NeuralResearch/generated-rust/src/main.rs", Edition2021) }
+   0.011883000s  INFO prepare_target{force=false package_id=stn_generated v0.1.0 (/Users/alfredricker/Project/neural/NeuralResearch/generated-rust) target="stn_generated"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/alfredricker/Project/neural/NeuralResearch/generated-rust/target/debug/.fingerprint/stn_generated-bd2ce76b0f934494/test-bin-stn_generated`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: cargo_util::paths::read_bytes
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   4: cargo::core::compiler::fingerprint::prepare_target
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+    Checking stn_generated v0.1.0 (/Users/alfredricker/Project/neural/NeuralResearch/generated-rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
