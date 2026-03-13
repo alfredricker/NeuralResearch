@@ -5,10 +5,4 @@ The final object of interest is our complete neural network. This is the graph t
 graph G {
     nodes(50);
 }
-
-display {
-    G;
-}
 ```
-
-Now compile and run the code. A display window should pop up and show you a graph of 50 disconnected nodes. 

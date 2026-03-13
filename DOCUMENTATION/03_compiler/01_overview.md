@@ -1,18 +1,20 @@
 # The STN Compiler
 
-The compiler for the Subgraph Topology Network (STN) language is written in Rust and follows standard Domain Specific Language (DSL) compiler design patterns. 
+The STN compiler is a Rust pipeline that turns `.stn` source into runtime-ready graph structures.
 
-## The Lexer
-The lexer is responsible for breaking down the source code into tokens. 
+## Current Pipeline
+1. **Lexing**: Convert raw source text into a stream of typed tokens with source spans.
+2. **Parsing**: Convert tokens into AST nodes (`Program`, `Item`, `Statement`, `Expr`).
+3. **AST**: Preserve the structural meaning of STN source in a syntax-oriented tree.
+4. **Declarative IR**: Resolve named groups/interfaces into compiler IDs and validate graph links.
+5. **Executable IR**: Materialize node/edge/storage structures for runtime execution.
+6. **Codegen**: Planned stage that will emit Rust/runtime artifacts from executable IR.
 
-## The Parser
-The parser iterates through the tokens and builds an abstract syntax tree (AST).
+## Why these stages exist
+- **Early stages** keep source-level intent and good diagnostics.
+- **Middle stages** normalize semantics and remove syntax ambiguity.
+- **Late stages** optimize for execution and backend generation.
 
-## The AST
-The AST is a tree representation of the source code. It is used to represent the structure of the source code in a way that is easy to understand and manipulate. 
-
-## The IR
-The intermediate representation (IR) is a lower level representation of the source code. It is used to represent the structure of the source code in a way that is easy to understand and manipulate. 
-
-## The Code Generator
-The code generator is responsible for generating the final executable code from the IR. 
+## Current status
+- Lexer, parser, AST, and IR lowering are implemented and can compile `stn/1-minimal-graph.stn`.
+- Code generation is scaffolded but not implemented yet.
