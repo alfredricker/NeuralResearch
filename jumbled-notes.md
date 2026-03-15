@@ -133,14 +133,38 @@ graph {
 }
 ```
 To allow for breaking up code into smaller blocks, you can have multiple graph statements. Note that this will still edit the master graph (there is only one graph, it can be built from many subgraphs).
+
+
+# Graph Declaration
+The final object of interest is our complete neural network. This is the graph that we can apply learning rules to, feed streams of information, train, etc. Let's start by declaring a disconnected graph of 50 `nodes`. 
+
 ```stn
-subgraph mono(n: i32) {
-    x = Nodes(n) : f32;
-
-}
 graph {
-
+    nodes(50);
 }
+```
+
+This graph simply generates 50 empty node objects that could be loaded into memory.
+
+### Declaring edges
+
+Edges connect nodes. The arrow `->` creates directed connections from left to right.
+```stn
+graph {
+    graph_nodes = nodes(50);
+    graph_nodes -> graph_nodes all;
+}
+```
+
+This creates 50 nodes where every node connects to every other node (2500 edges).
+
+The topology `all` specifies the connection pattern. Other patterns:
+```
+nodes -> nodes: sparse(0.1);   // 10% of possible edges, random -- no identity connections
+nodes -> nodes: identity;      // node i connects to node i only
+nodes -> nodes: ring(1);       // node i connects to node (i+1) mod n
+nodes -> nodes: none;          // no connections
+```
 
 # Inputs
 

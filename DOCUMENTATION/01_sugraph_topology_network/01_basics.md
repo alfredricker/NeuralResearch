@@ -1,33 +1,44 @@
-# Purpose
-The purpose of a network is to take in data, process it, and output data. Therefore I adopt the simple general framework where *Nodes* are pieces of data and *Edges* transform the data either symmetrically or directionally.
+# STN Language Overview
 
-# Graph Declaration
-The final object of interest is our complete neural network. This is the graph that we can apply learning rules to, feed streams of information, train, etc. Let's start by declaring a disconnected graph of 50 `nodes`. 
+STN (Subgraph Topology Network) is a declarative language for specifying neural network architectures as graphs. The core model is simple: **nodes hold data, edges transform it**.
 
-```stn
-graph {
-    nodes(50);
-}
-```
+## Mental Model
 
-This graph simply generates 50 empty node objects that could be loaded into memory.
+A neural network in STN is a directed graph where:
+- **Nodes** are typed containers holding activation values, hidden states, or learnable parameters
+- **Edges** define how data flows and transforms between nodes
+- **Topology** specifies the connection pattern (sparse, ring, all-to-all, etc.)
+- **Morphisms** define the computation that runs along an edge
 
-### Declaring edges
+This model is general enough to express feedforward networks, RNNs, spiking neural networks, Hopfield networks, and cortical column architectures within the same framework.
 
-Edges connect nodes. The arrow `->` creates directed connections from left to right.
-```stn
-graph {
-    graph_nodes = nodes(50);
-    graph_nodes -> graph_nodes all;
-}
-```
+## Key Syntax at a Glance
 
-This creates 50 nodes where every node connects to every other node (2500 edges).
+| Symbol | Meaning |
+|--------|---------|
+| `:` | Type annotation or property assignment |
+| `~>` | Directed topology (edge from left to right) |
+| `~` | Symmetric topology (bidirectional edge) |
+| `->` | Function / morph return type |
+| `\|>` | Morphism pipeline (apply transformation) |
+| `@` | Matrix multiplication |
+| `*` | Ring product (Hadamard elementwise) |
+| `**` | Exponentiation |
+| `%` | Modulus |
 
-The topology `all` specifies the connection pattern. Other patterns:
-```
-nodes -> nodes: sparse(0.1);   // 10% of possible edges, random -- no identity connections
-nodes -> nodes: identity;      // node i connects to node i only
-nodes -> nodes: ring(1);       // node i connects to node (i+1) mod n
-nodes -> nodes: none;          // no connections
-```
+## Naming Convention
+
+Built-in functions and types are **Capitalized** (`Nodes`, `Sparse`, `ReLU`, `Conv2d`).
+User-defined functions, morphs, and variables are **lowercase** (`my_layer`, `encode`, `hidden`).
+
+## Documentation Sections
+
+- [Data Types](02_data_types.md) — primitives, tensors, alternate algebras
+- [Operators](03_operators.md) — all symbols and their semantics
+- [Variables & Properties](04_variables_and_properties.md) — assignment and the `:` operator
+- [Nodes](05_nodes.md) — `out`, `state`, `dyn`, `dynamic`
+- [Edges & Topology](06_edges_and_topology.md) — connection patterns
+- [Functions & Morphs](07_functions_and_morphs.md) — `fn`, `morph`, `|>` pipelines
+- [Subgraphs](08_subgraphs.md) — reusable parameterized blocks
+- [Graphs](09_graph.md) — top-level graph declaration
+- [Algebras](10_algebras.md) — custom algebraic structures
