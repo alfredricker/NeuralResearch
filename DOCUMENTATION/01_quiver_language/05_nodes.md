@@ -1,37 +1,44 @@
 # Nodes
 
-Nodes are the fundamental data-holding units of an STN graph. A node definition specifies what data it holds, what state it carries across time steps, and what learnable parameters belong to it.
+Nodes are the fundamental data-holding units of a Quiver graph. A node definition specifies what data it holds, what state it carries across time steps, and what learnable parameters belong to it.
+
+## Instantiating Node Sets
+
+Any node type is instantiated into a set using square brackets:
+
+```quiver
+x = Node[10];          // 10 built-in scalar nodes
+h = LSTMCell[50];      // 50 LSTMCell nodes
+s = LIF[128];          // 128 Leaky Integrate-and-Fire neurons
+```
+
+The number in brackets is the count — a `u32` that can be a literal or a parameter passed from an enclosing `subgraph`.
+
+## The Built-in `Node` Type
+
+`Node` is the default node type. It holds a single scalar value whose type is inferred from its connected edges — the compiler ensures that all edges meeting at a `Node` have compatible types. `Node` carries no state and no dynamics: its output at any step is simply whatever its incoming edges wrote to it.
+
+```quiver
+x = Node[10]               // 10 nodes, type inferred from context
+x = Node[10] : tsr[f32; 128]  // explicitly typed
+```
+
+Any custom node definition that declares only an `out` field and nothing else is semantically equivalent to `Node` with that type. The `node` keyword exists for when you need state, learnable parameters, or a custom update rule.
 
 ## Node Fields
-
-A `node` block can contain four kinds of declarations:
 
 | Keyword | Role |
 |---------|------|
 | `out` | The current output value — what outgoing edges read |
 | `state` | Persistent value that survives across time steps |
 | `dyn` | Learnable intrinsic parameter (belongs to the node, not an edge) |
-| `dynamic` | A step function that updates `out` and `state` each tick |
-
-## Simple Feedforward Nodes
-
-Nodes that just hold an activation vector — no recurrence, no dynamics:
-
-```stn
-node Dense(dim: u32) {
-    out: tsr[f32; dim]
-}
-
-node ImageNode(C: u32, H: u32, W: u32) {
-    out: tsr[f32; C, H, W]
-}
-```
+| `dynamic` | An update function that runs each time step, writing to `out` and `state` |
 
 ## Recurrent Nodes
 
 Nodes with `state` persist values between time steps:
 
-```stn
+```quiver
 node LSTMCell(hidden: u32) {
     out:     tsr[f32; hidden]
     state h: tsr[f32; hidden] = Zeros()
@@ -44,11 +51,24 @@ node GRUCell(hidden: u32) {
 }
 ```
 
+Instantiated the same way as any other node type:
+
+```quiver
+lstm = LSTMCell[50]    // 50 LSTM cells, each with hidden dim inferred from edges
+gru  = GRUCell[32]
+```
+
+If the node type takes parameters, pass them in parentheses before the count brackets:
+
+```quiver
+lstm = LSTMCell(hidden=128)[50]    // 50 cells, hidden dim explicitly 128
+```
+
 ## Nodes with Dynamics
 
-The `dynamic` block defines the update rule run each time step. It receives external input and updates `out` and any `state` fields.
+The `dynamic` block defines the update rule run each time step. It receives the aggregated input from incoming edges and writes to `out` and any `state` fields.
 
-```stn
+```quiver
 // Leaky Integrate-and-Fire spiking neuron
 node LIF {
     out:   f32                    // spike output (0 or 1)
@@ -77,9 +97,7 @@ node LIF {
 }
 ```
 
-### Adaptive threshold variant
-
-```stn
+```quiver
 node AdaptiveLIF {
     out:   f32
     state v_m:   f32 = 0.0
@@ -92,7 +110,7 @@ node AdaptiveLIF {
     dynamic step(input: f32) {
         v_m   = v_m   * (1.0 - 1.0/tau_m) + input
         theta = theta * (1.0 - 1.0/tau_th)
-        if v_m >= theta {
+        if v_m >= threshold {
             out   = 1.0
             v_m   = 0.0
             theta = theta + delta_th
@@ -105,9 +123,7 @@ node AdaptiveLIF {
 
 ## Stochastic Nodes
 
-Nodes that sample from a distribution each forward pass:
-
-```stn
+```quiver
 // VAE latent node — edges write to mu and log_var, node samples out
 node Stochastic(dim: u32) {
     out:     tsr[f32; dim]
@@ -135,9 +151,7 @@ node BayesianDense(dim: u32) {
 
 ## Oscillatory Nodes
 
-Nodes that evolve a phase over time — useful for binding and synchrony:
-
-```stn
+```quiver
 node Oscillator {
     out:   c32                // complex amplitude — encodes phase and magnitude
     state phase: f32 = 0.0
@@ -155,9 +169,7 @@ node Oscillator {
 
 ## Memory-Augmented Nodes
 
-Nodes that maintain an external memory matrix:
-
-```stn
+```quiver
 node ExternalMemory(mem_size: u32, head_dim: u32) {
     out:     tsr[f32; head_dim]
     state M: tsr[f32; mem_size, head_dim] = Zeros()

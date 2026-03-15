@@ -572,9 +572,6 @@ I need to pick distinction for function return value and topology definition
 # Declaring topologies using edges
 
 ```
-morph ctrans(x : tsr[f32]) {
-
-}
 
 edge conve(x : tsr[f32; Cin, H, W]) : tsr[f32; Cout, H2, W2] {
     dyn kernel: tsr[f32; Cout, Cin, K, K] = kaiming_uniform(); // initialization
@@ -603,3 +600,7 @@ subgraph mem(){
 
     
 }
+
+```
+
+Maybe you could have 

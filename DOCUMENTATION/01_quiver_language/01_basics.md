@@ -1,10 +1,10 @@
-# STN Language Overview
+# Quiver Language Overview
 
-STN (Subgraph Topology Network) is a declarative language for specifying neural network architectures as graphs. The core model is simple: **nodes hold data, edges transform it**.
+Quiver is a declarative language for specifying neural network architectures as graphs. The core model is simple: **nodes hold data, edges transform it**.
 
 ## Mental Model
 
-A neural network in STN is a directed graph where:
+A neural network in Quiver is a directed graph where:
 - **Nodes** are typed containers holding activation values, hidden states, or learnable parameters
 - **Edges** define how data flows and transforms between nodes
 - **Topology** specifies the connection pattern (sparse, ring, all-to-all, etc.)
@@ -28,7 +28,7 @@ This model is general enough to express feedforward networks, RNNs, spiking neur
 
 ## Naming Convention
 
-Built-in functions and types are **Capitalized** (`Nodes`, `Sparse`, `ReLU`, `Conv2d`).
+Built-in functions and types are **Capitalized** (`Node`, `Sparse`, `ReLU`, `Conv2d`).
 User-defined functions, morphs, and variables are **lowercase** (`my_layer`, `encode`, `hidden`).
 
 ## Documentation Sections

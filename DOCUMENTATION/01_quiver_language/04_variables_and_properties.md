@@ -4,8 +4,8 @@
 
 Variables are declared with `=`. They can hold nodes, edge topologies, or any named expression.
 
-```stn
-x = Nodes(10)          // 10 nodes
+```quiver
+x = Node[10]           // 10 nodes
 e = x ~> x             // directed self-connections on x
 ```
 
@@ -17,7 +17,7 @@ Variables serve two purposes:
 
 A property is metadata attached to an object using `:`. Properties refine what an object is — its data type, connection pattern, scale, etc.
 
-```stn
+```quiver
 x : f32                // x holds 32-bit floats
 x : tsr[f32; 128]      // x holds 128-dimensional vectors
 e : Sparse(0.2)        // e has 20% random connectivity
@@ -30,8 +30,8 @@ The compiler enforces that a property is valid for the kind of object it is appl
 
 Properties can be applied on the same line as declaration:
 
-```stn
-x = Nodes(10) : tsr[f32; 128]
+```quiver
+x = Node[10] : tsr[f32; 128]
 e = x ~> x : Sparse(0.2)
 ```
 
@@ -39,16 +39,16 @@ e = x ~> x : Sparse(0.2)
 
 Comma-separate properties to apply several at once:
 
-```stn
-e = x ~> x : Sparse(0.2), Scale(0.1)
+```quiver
+e = x ~> x : Sparse(0.2) via Scale(0.1);
 ```
 
 This is equivalent to:
 
-```stn
+```quiver
 e = x ~> x
 e : Sparse(0.2)
-e : Scale(0.1)
+e : via Scale(0.1);
 ```
 
 ## Scope

@@ -1,6 +1,6 @@
 # Data Types
 
-Every node in an STN graph holds a typed value. Types are assigned to nodes and edges using the `:` operator.
+Every node in a Quiver graph holds a typed value. Types are assigned to nodes and edges using the `:` operator.
 
 ## Numeric Primitives
 
@@ -44,7 +44,7 @@ These types carry the same bit widths as floats but with different algebraic str
 
 Tensors are the primary data container for deep learning. They are declared with the `tsr` keyword, element type, and a semicolon-separated shape.
 
-```stn
+```quiver
 tsr[f32; 3]           // 1D tensor with 3 elements (a vector)
 tsr[f32; 4, 4]        // 2D tensor, 4x4 matrix
 tsr[f32; 1, 28, 28]   // 3D tensor, e.g. a grayscale image
@@ -54,7 +54,7 @@ tsr[c32; 64]          // vector of 64 complex numbers
 
 The shape dimensions can be symbolic when used inside parameterized node or subgraph definitions:
 
-```stn
+```quiver
 node ImageNode(C: u32, H: u32, W: u32) {
     out: tsr[f32; C, H, W]
 }
@@ -64,7 +64,7 @@ node ImageNode(C: u32, H: u32, W: u32) {
 
 In function signatures, `..` in a shape denotes an arbitrary number of dimensions:
 
-```stn
+```quiver
 fn relu(x: tsr[f32; ..]) -> tsr[f32; ..] {
     Max(x, 0.0)
 }
