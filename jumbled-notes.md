@@ -567,3 +567,39 @@ I need to pick distinction for function return value and topology definition
 * **Matrix Multiply:** `@`
 * **Exponentiation:** `**`
 * **Modulus:** `%`
+
+
+# Declaring topologies using edges
+
+```
+morph ctrans(x : tsr[f32]) {
+
+}
+
+edge conve(x : tsr[f32; Cin, H, W]) : tsr[f32; Cout, H2, W2] {
+    dyn kernel: tsr[f32; Cout, Cin, K, K] = kaiming_uniform(); // initialization
+    dyn bias: tsr[f32; Cout] = zeros(); // initialization
+    stride: i32 = 1;
+    pad: i32 = 1;
+
+    // learning rule
+    dynamic forward(){
+
+    }
+}
+
+subgraph mem(){
+    subgraph p(n: u32) {
+        // node defined previously
+        ExternalMemory(8, 16)[n]; // n externalmemory neurons
+    }
+
+    subgraph q(n: u32) {
+        // imported or defined previously
+        Stochastic(5)[n]; // 50 stochastic neurons 
+    }
+
+
+
+    
+}
