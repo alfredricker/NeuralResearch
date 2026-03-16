@@ -1,0 +1,439 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{hyperref}
+
+\title{network notes}
+\author{alfred.ricker7 }
+\date{December 2025}
+
+\newcommand{\D}{\mathrm{d}}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+\subsection{Output Neurons}
+This is perhaps the trickiest part of this formulation. With a dynamic system such as this one, with neurons in motion and firing dependent on distance between neurons, a given output space either has to be independent of the position space, dynamically move within the position space, or attract neurons (dependent on distance, energy, or some form of subset) towards it in order to fire when necessary. It is best to choose one approach for all output actions for consistency, but I must study the options and understand the implications. \\
+
+An interesting thought just occurred to me. It seems that input signals will spread out among various competing regions that become active. Most pathways should die out from not enough neural activity, while others perhaps reach an equilibrium state. If there is some understanding of the desired action, the active region can correspond to an output state (the details of this to be determined by the structure of output generation that I decide on).
+
+\subsubsection{Constraints}
+It seems as though output can be generated from a region of the space $R$. The system shouldn't output constantly. It should output only when the Variance of Energy in a specific output sector drops below a threshold (convergence) or when the total energy in a sector exceeds a "Confidence Threshold." When an output produced from a given region is penalized, the thresholds may be increased or there may be a force of repulsion from the active input space and the penalized region. Then the alternative search paths may attempt outputs. \\
+
+We can have the network reach local equilibria, which means that the region has settled on a ``decision''.
+
+
+\section{Waves}
+\subsection{My Thoughts}
+In the wave formalism, we can have vectors
+\[
+\mathbf{\Psi} = \begin{bmatrix}
+\psi_1 \\
+\psi_2 \\
+. \\
+. \\ 
+\psi_n
+\end{bmatrix}
+\]
+Where wave phases can interfere orthogonally. In order to determine the magnitude of effect that one neuron has on transforming the wave function at a point, we do need to maintain some distance metric among the space $\mathbb{H}$
+
+
+
+
+
+
+\section{GNNs}
+\subsection{My Thoughts}
+It seems that GNNs are used to learn from graph like structures, such as proteins where nodes are atoms and edges are covalent bonds. The literature applies some $\tau(G,n) \to \mathbb{R}^m$
+
+The nodes in the hyperbolic space $\mathbb{H}^D$ can be morphed into a graph space $\mathbb{G}$ perhaps to some computational advantage. Whether or not the edge $e_{ij} \in \mathcal{E}$ of nodes $n_i, n_j \in \mathcal{N}$
+\begin{equation}
+    \mathrm{if} \,\,\exists \, n_k \in \mathcal{N} : d_\mathbb{H}(n_i,n_k) < d_\mathbb{H}(n_i,n_j) \, \land d_\mathbb{H}(n_j,n_k) < d_\mathbb{H}(n_i,n_k) \implies  e_{ij} \notin \mathcal{E}
+\end{equation}
+\begin{equation*}
+    \mathrm{otherwise} \,\, e_{ij} \in \mathcal{E}
+\end{equation*}
+In other words, if there is a node $n_k$ such that the metric of $n_i$ and $n_k$, $d(n_i,n_k) < d(n_i,n_j)$, then $n_i$ and $n_j$ are not connected by an edge. Therefore each node is only connected to its nearest neighbor. \\ 
+
+The multidimensional spinor field $\mathbf{\Psi}(z)$ is then propagated through edges rather than a continuous space, but the math is essentially the same, as there is no node without an associated edge. \\
+
+An even better approach, should you decide to go the graph route, is to use the Watts-Strogatz Small World Model for random initialization of networks.
+
+\section{Geometric Deep Learning}
+\subsection{My Thoughts}
+It's hard to say what the symmetries of general experience are. If some subset of the input set $\mathcal{J} \subset \mathcal{I}$ is experienced, the action of this set on the domain $A: \mathcal{J} \to \chi(\Omega, C)$ need not be constant between states $\mathcal{S}, \mathcal{S}'$. \\
+
+However, there is some assumption I am inclined to make that more complicated concepts can form as mathematical composites of simpler ones. This exhibits a tree-like structure where simplicity and frequency are correlated. However it seems odd to define frequency and complexity as the essential components of the topology.
+
+\subsection{BRONSTEIN, BRUNA, COHEN \& VELIČKOVIĆ}
+The Geometric Deep Learning approach has some interesting concepts:
+
+Let $\Omega, \Omega'$ be domains, $\mathfrak{G}$ a symmetry group over $\Omega$, and $\Omega' \subseteq \Omega$ if $\Omega'$ is a compact version of $\Omega$.
+
+Linear equivariant layer:
+\begin{equation}
+    B: \chi(\Omega, C) \to \chi(\Omega', C') \, | \, B(\mathfrak{g}.x) =\mathfrak{g}.B(x) \, \forall \, \mathfrak{g} \in \mathfrak{G}, x\in \chi(\Omega,C)
+\end{equation}
+Nonlinearity:
+\begin{equation}
+    \sigma: C \to C' \, | \, (\sigma(x))(u) = \sigma(x(u)) \, \mathrm{(element \, wise)}
+\end{equation}
+Local pooling 
+\begin{equation}
+    P: \chi (\Omega,C) \to \chi(\Omega', C) \, | \, \Omega' \subseteq \Omega
+\end{equation}
+$\mathfrak{G}$ invariant layer (global pooling)
+\begin{equation}
+    A: \chi(\Omega, C) \to \mathcal{Y} \, | \, A(\mathfrak{g}.x) = A(x) \, \forall \, \mathfrak{g} \in \mathfrak{G}, x\in \chi(\Omega,C)
+\end{equation}
+With the final construction being
+\begin{equation}
+    f = A \circ \sigma_J \circ B_J \circ P_{J-1} \circ ... \circ P_1 \circ \sigma_1 \circ B_1
+\end{equation}
+While I struggle to understand a lot of what they have to say about convolutions being translation equivariant linear operators (and that this corresponds to Fourier transforms to ``rotate'' the space to an Eigenbasis) I somewhat understand the big picture generalization of deep learning to symmetry groups. The proof of how the non-linear layer is necessary so that $f$ is not simply dependent on the average $\int_\Omega \langle x,y \rangle d\Omega$ is worth revisiting. \\
+
+As to how this relates to my pursuit of a powerful unsupervised algorithm of ``understanding'', it is important to consider the symmetries of what the engine can experience (receive as inputs). The universal symmetries of experience should become the basic substrate of all possible neurons.
+
+
+
+\section{Hebbian Learning and Hopfield Networks}
+\subsection{Hopfield 1982}
+``Consider a physical system described by many coordinates $X_1,..., X_N$, the components of a state vector $X$. Let the system have locally stable limit points $X_a, X_b, ...$ Then, if the system is started sufficiently near any $X_a$, as at $X = X_a + \Delta$, it will proceed in time until $X = X_a$. We can regard the information stored in the system as the vectors $X_a, X_b, ...$ The starting point $X = X_a + \Delta$ represents a partial knowledge of the item $X_a$, and the system then generates the total information $X_a$." Hopfield Networks define a set of neurons $\mathcal{N}$ in which a given neuron can be either OFF or ON, $V_i \in \{-1,1\} \in \mathcal{N}$. The ordered set then provides the ``memory'' $(V_1,V_2, ..., V_3)$. Each neuron $V_i$ is equipped with a set of connections $\{T_{ij}, T_{ik},...\} \in \mathbb{R}^n$. A requirement to guarantee convergence is $T_{ij} = T_{ji}$. The update rule of the state of neuron $V_i$ is
+\begin{equation}
+    V_i' = \mathrm{sign}\left( \sum_{ij}T_{ij}V_j \right)
+\end{equation}
+Exercises
+\begin{enumerate}
+    \item Prove that if $T_{ij} \ne T_{ji}$, then the network doesn't not guarantee a stable state $S$ in finite updates.
+    \item What happens if $T_{ij} = T_{ik} \, \forall \, i,j,k$?
+\end{enumerate}
+
+
+\section{Neuroscience}
+"The integrative properties of the cerebrum can only
+be understood by envisioning a permanent dialog
+between interconnected structures." The synaptic activity during rest "consolidates memory traces that occurred during wakefulness" according to Steriade 1999. \\
+
+An interesting phenomenon is that different dendritic branches of a neuron apply different learning rules. Some apply a Hebbian learning approach where if they have high chemical activity when the neuron fires, they potentiate future signals (the given connection contributed to the firing of the neuron). Other apply local non-Hebbian methods, where is certain local clusters of synapses share high activity, they reinforce one another. \href{https://www.science.org/doi/10.1126/science.ads4706}{Paper}
+
+\subsection{Izhikevich}
+The Izhikevich model is what is know as a ``biologically inspired'' model, which is a neural architecture that derives inspiration from scientific understanding of the brain rather than seeking to replicate the structure. The Izhikevich Model contains two differential equations that model the spiking of neurons.
+
+\[
+v' = 0.04v^2 + 5v +140-u+I
+\]
+\[
+u' = a(bv-u)
+\]
+The Izikevich model is much simpler and more computationally feasible than the Hodgkin-Huxley model, without losing significant complexity. The key insight of this paper is that two ODEs can model all known firing patterns of biological neurons.
+
+
+\section{Formulations}
+\subsection{General Set Formulation}
+The input sets over domains $\mathcal{I} =\{ \Omega_1, \Omega_2,..., \Omega_n \}$ where there are multiple domains of signals which corresponds to the ability of natural minds to process a diverse set of signals into conscious decision making, such as vision, audio, hunger, temperature, etc. For the simplest construction we will start with the language domain $\Omega_L$. \\ 
+
+The space of information processing of which thought is ideally to become an emergent process is 
+\begin{equation}
+    \{ \mathfrak{G}, \varphi: \Omega\to \mathfrak{G}, \vartheta : \mathfrak{G}\to \mathcal{A} \} 
+\end{equation}
+Which is the group substrate $\mathfrak{G}$, the set of all functions from the input domain to $\mathfrak{G}$, and the set of all functions from $\mathfrak{G}$ that map to actions $\mathcal{A}$. \\
+
+It seems that we can define the network $\mathcal{N}$ to be a set of regions $R_j \subset \mathcal{H}$, where there is a central function space $\mathcal{F} = \{ T_{ij}: R_i \to R_j \}$. This is perhaps not the appropriate way to define a central region of the Global Neural Workspace. Something that does come to mind is the brains diverse zoo of functions. At its core, it seems information propagation between nodes of a network, however this information can be manipulated over the cell through both linear and nonlinear deformations, functions can be applied to signals over regions $R$, there are logical functions of signal transmission (XOR, AND, etc.). This all seems overwhelming to mathematically model, but there must be some highly general space on which an algorithm develops these adaptive frameworks naturally. Perhaps this is a fruitless pursuit but it is one I will continue to contemplate. \\
+
+We can let $h$ be the fundamental elements of the framework that live in an arbitrary dimensional space, i.e. we can always perform the operation 
+\begin{equation}
+    R' = R \cup \{h_n \} , \exists  \, h_m \in R : \langle h_m, h_n\rangle = 0
+\end{equation}
+In English, we can add a new element $h_n$ that is orthogonal to some element in $R$. This adds difficulty to the representation theory of this topology, but it seems a necessary condition for flexibility and biological plausibility.
+
+
+\subsection{Regions}
+The idea of breaking the network up into regions with convergent functions among them sounds promising. We define regions to be subsets of the network space equipped with a convergent sequence. 
+\begin{equation}
+    h \in R_i \subset \mathcal{N}
+\end{equation}
+\begin{equation}
+    S(R)  \to S^*(R)   
+\end{equation}
+Each $R_i$ also contains a null element (for defining identity algebras?) $\oslash \in R_i \, \forall \, R_i \subset \mathcal{N}$. I have abandoned the property that $R_i \cap R_j = \emptyset \, \forall \, R_i, R_j \subset \mathcal{N}$ because it seems that there might be situations where we want to define convergence on a superset, such as a global convergence property. \\
+
+The paper on Deep Equilibrium models proposes a single recurrent non-linear function
+\begin{equation}
+    f(h^*) = f(h^*, x)
+\end{equation}
+where $x$ is an input vector. This is analogous to my approach, although these non-linear functions $S$ are defined among subsets of the global space $\mathcal{N}$ \\
+
+Let an ``input" region be $R_\Omega$ on which a function is defined from the input domain space to a region
+\begin{equation}
+    \xi : \Omega_i \to R_{\Omega_i}
+\end{equation}
+By default we set $\xi(\omega) = \oslash$. Similarly, an output region is one $R_Z$ with
+\begin{equation}
+    \zeta : Z_i \to R_{Z_i}
+\end{equation}
+
+
+\subsection{Micro Properties}
+We can define $h \in \mathcal{H} \subset R \subset \mathcal{N}$
+\begin{equation}
+    \mathcal{H} = \{ h' \in R \, | \, \langle h,h' \rangle\notin \{0,\oslash \} \}
+\end{equation}
+In other words, we can define subsets among a given region in which there are defined inner product values between the elements $h, h' \in R$. These relationships could be defined by a (memory inefficient) matrix $\mathfrak{A} \in \mathbb{R}^{|R| \times |R|}$. \\
+
+Among the elements $h \in R$, we can also define some other useful properties
+\begin{itemize}
+    \item Plasticity $\eta: R \to [0,1)$. Properties that use plasticity dependent operators are obviously dependent on this value.
+    \item Energy $\varepsilon : R \to \mathbb{H}^1$. This could be a lorentz boost mechanism
+    \item Gating $\Gamma(h_1, h_2) = h_2 \cdot \sigma(\langle h_1, h_2 \rangle)$
+    \item Broadcasting space $\mathcal{U}$
+\end{itemize}
+
+\subsubsection{Plasticity}
+Region wide plasticity may make sense. However, the motivation for a region definition was a subset on which convergence is defined. So I prefer $\eta(h)$.
+
+\subsubsection{Broadcasting}
+\begin{equation}
+    \mathcal{U}(R) = \begin{cases}
+        \gamma E(R) & \text{if} \, E(R) > \theta \\
+        0 & \text{otherwise}
+    \end{cases}
+\end{equation}
+Where $E(R)$ is the region-wide energy.
+
+\subsubsection{Energy}
+To properly define a convergence sequence $S(R)$ for some $R \subset \mathcal{N}$ then we define an "activation" parameter $\alpha_i(t)$ for each $h_i \in R$.
+
+
+\subsection{Kernel Space}
+I am thinking it may be ideal to have $h \in \mathcal{H}$ purely as abstract objects that are defined in terms of the map $K : \mathcal{H} \times \mathcal{H} \to \mathbb{R}$ where $K(h_a, h_b) = K(h_b, h_a)$ and $cK(h_a, h_b) \ge 0$. This allows arbitrary degrees of orthogonality. However, how can such a formalism handle transient attention state and persistent memory state? What is a state of subset $\mathcal{H}$ beyond the symmetric matrix $\mathbf{K}_{ab} = K(h_a,h_b)$? Well, we can split up the system into transient, and learn dependent properties. A transient property is effective energy $\varepsilon_{\text{eff}}(h)$ or plasticity $\eta(h)$ while the kernel matrix is a learn dependent property.
+
+\subsubsection{Input Mapping: The Receptive Field Projection}
+The mapping from a physical domain $\Omega$ (e.g., the space of pixel intensities, acoustic frequencies) to the abstract thought space $\mathcal{H}$ requires a defined interface. We cannot directly embed raw signals into the abstract kernel space; rather, we project signals onto a set of basis sensors.
+
+Let $R_\Omega \subset \mathcal{N}$ be an ``Input Region'' consisting of a finite set of abstract anchor elements:
+\begin{equation}
+    R_\Omega = \{ s_1, s_2, \dots, s_N \}
+\end{equation}
+Each anchor $s_k$ is associated with a physical receptive field profile $\phi_k : \Omega \to \mathbb{R}$. These profiles define the sensitivity of the system to specific patterns in the input domain (e.g., Gabor filters in vision, cochlear filters in audio).
+
+We define the projection map $\xi : \Omega \to R_\Omega$ as the generation of a state vector $\Psi_\Omega$ on the region $R_\Omega$:
+\begin{equation}
+    \xi(\omega) = \Psi_\Omega = \sum_{k=1}^{N} \alpha_k(\omega) s_k
+\end{equation}
+The coefficients $\alpha_k(\omega)$ represent the activation intensity of each sensor given the input signal $\omega \in \Omega$. These are computed via the inner product on the input domain space $L^2(\Omega)$:
+\begin{equation}
+    \alpha_k(\omega) = \langle \omega, \phi_k \rangle_{L^2(\Omega)} = \int_{\Omega} \omega(x) \phi_k(x) \, dx
+\end{equation}
+
+This formulation effectively bridges the physical and abstract worlds:
+\begin{enumerate}
+    \item \textbf{Physical Layer:} The convolution $\langle \omega, \phi_k \rangle$ extracts features from the raw signal.
+    \item \textbf{Abstract Layer:} The coefficients $\alpha_k$ instantiate a state $\Psi_\Omega$ in the Hilbert space $\mathcal{H}$, allowing the raw input to interact with memory and cognitive processes via the Kernel $\mathbf{K}$.
+\end{enumerate}
+
+Thus, the ``Input State'' is defined not by the raw data, but by the coherence of the raw data with the system's inherent sensory basis.
+
+\subsubsection{Output Mapping: The Generator Reconstruction}
+The output mapping $\zeta$ represents the inverse of the receptive field projection: rather than analyzing a signal into coefficients, it synthesizes a signal from abstract state coefficients. This corresponds to the ``Action'' or ``Motor'' phase of the processing loop.
+
+Let $R_Z \subset \mathcal{N}$ be an ``Output Region'' (e.g., motor cortex) containing abstract actuator elements:
+\begin{equation}
+    R_Z = \{ m_1, m_2, \dots, m_M \}
+\end{equation}
+Each actuator $m_k$ is paired with a \textit{Generator Primitive} $\varphi_k \in Z$. These primitives serve as the basis functions of the output domain (e.g., muscle synergies, phonemes, or motor control vectors).
+
+Given a transient state $\Psi_{R_Z}$ in the output region defined by coefficients $\beta_k$:
+\begin{equation}
+    \Psi_{R_Z} = \sum_{k=1}^M \beta_k(t) m_k
+\end{equation}
+The output mapping $\zeta : R_Z \to Z$ constructs the physical signal $z \in Z$ by the linear superposition of the generator primitives weighted by the state coefficients:
+\begin{equation}
+    \zeta(\Psi_{R_Z}) = z(y) = \sum_{k=1}^M \beta_k(t) \varphi_k(y)
+\end{equation}
+where $y$ represents the coordinates in the output domain (e.g., time, spatial position of a limb).
+
+This creates a ``Constructive Interference'' model of action: complex behaviors or signals in $Z$ are formed by the weighted combination of fundamental primitive actions stored in the system's topology. \\
+
+This raises the question: which function is to learned? The $\zeta$ map, or the coefficients of the output region $\beta_k(t)$? Given that in any given region we would like to learn transient states defined by $\beta_k(t)$, we should be learning this.
+
+
+\subsection{Regions Revisited: Functions}
+Now we would like to define a general class of convergence functions that can apply to any region $R_i \subset \mathcal{N}$. This function should detect if the existing configuration has a stable \textit{attractor state} for the given excitation state $S_\mathcal{E} (R)$. \\
+
+We would also like to expand upon the Region topology.
+
+\subsubsection{Network Topology and Connectivity}
+We relax the connectivity constraints to allow for specialized, local processing while maintaining global integration. We define the network $\mathcal{N}$ as a collection of regions $\{R_1, \dots, R_m\}$ satisfying the \textit{Adjacency Condition}:
+\begin{equation}
+    \forall R_i \subset \mathcal{N}, \exists R_j \subset \mathcal{N}, j \ne i : R_i \cap R_j \ne \emptyset
+\end{equation}
+This ensures that no region is isolated. A result of the adjacency condition is that the network is \textit{Path Connected}. For any two regions $R_{\text{start}}, R_{\text{end}}$, there exists a sequence of regions $\{ \gamma_1, \dots, \gamma_k \}$ such that:
+\begin{equation}
+    R_{\text{start}} \cap \gamma_1 \ne \emptyset, \quad \gamma_p \cap \gamma_{p+1} \ne \emptyset, \quad \gamma_k \cap R_{\text{end}} \ne \emptyset
+\end{equation}
+
+\subsubsection{Emergent Maps via Overlap}
+Under this topology, the functional maps $T_{ij}: R_i \to R_j$ are not arbitrary learned functions, but naturally emergent properties of the intersection.
+
+For adjacent regions ($R_i \cap R_j \neq \emptyset$), the map is defined as the projection of the state $\Psi_{R_i}$ onto the shared subspace $S_{ij} = R_i \cap R_j$:
+\begin{equation}
+    T_{ij}(\Psi_{R_i}) = \sum_{h \in S_{ij}} \langle \Psi_{R_i}, h \rangle h
+\end{equation}
+This effectively "leaks" the portion of the thought from Region $i$ that is intelligible to Region $j$.
+
+For non-adjacent regions, the map is the composition of these local leakages along the connectivity path $\gamma$:
+\begin{equation}
+    T_{i \to j} = T_{\gamma_k \to j} \circ \dots \circ T_{i \to \gamma_1}
+\end{equation}
+This formulation implies that information can only travel across the network if it can be "translated" through the shared vocabularies of intermediate regions.
+
+
+\subsubsection{Convergence Sequences}
+We can define the total energy of a region as simply 
+\begin{equation}
+    E(R) = \sum_{h \in R} \alpha_h(t)
+\end{equation}
+We define the temporal evolution of the activation state $\alpha_h$ for a thought element $h$ using a differential equation that balances resonant excitation against intrinsic decay and competitive inhibition. The update rule is given by:
+\begin{equation}
+    \tau \frac{d\alpha_h}{dt} = \alpha_h \left( \sigma\left( \sum_{k \in R} \langle h, h_k \rangle \alpha_k \right) - l - \kappa \sum_{j \ne h} \alpha_j \right)
+\end{equation}
+The terms are defined as follows:
+\begin{itemize}
+    \item \textbf{Resonant Drive:} The summation $\sum \langle h, h_k \rangle \alpha_k$ represents the total support $h$ receives from the current state of the region. If $h$ is similar to other active elements (high $K$), this term drives growth.
+    \item \textbf{Lateral Inhibition:} The term $-\kappa \sum \alpha_j$ forces elements in the region to compete for energy. As the total activity of the region rises, it becomes ``harder'' for any individual $h$ to grow, naturally enforcing a sparsity constraint preventing exploding gradients.
+    \item \textbf{Leak:} The constant $l$ represents the metabolic cost of activity, ensuring that unsupported thoughts decay to zero.
+\end{itemize}
+
+To satisfy the condition that strong resonance leads to growth while preventing unbounded amplification, we define $\sigma(\cdot)$ as a \textit{Scaled Sigmoid} function:
+\begin{equation}
+    \sigma(x) = \frac{A}{1 + e^{-\gamma(x - x_0)}}
+\end{equation}
+We set the amplitude $A > l$ to ensure that when the input drive $x$ is sufficiently high (i.e., when $\langle h, h' \rangle > s$), the drive $\sigma(x)$ exceeds the leak $l$, allowing $\frac{d\alpha}{dt}$ to become positive. The sigmoidal nature ensures that for very high inputs, the drive saturates rather than growing linearly, mimicking the biological refractory period and preventing runaway excitation. \\
+
+We can say that a region has converged when 
+\begin{equation}
+    \frac{\partial E}{\partial t} \le \delta
+\end{equation}
+We can also define a ``familiarity'' variable $\gamma$ that determines how familiar a region $R$ is to some concept. If $E(R_\Omega) < \gamma \, \land  \, \frac{\partial E}{\partial t} \le \delta$, this implies the region is unfamiliar with the input. Putting this in the context of time of input is a little tricky. However, we can define this as a starting point for neurogenesis
+\begin{equation}
+    \text{if} \, \, \, E(R_\Omega) < \gamma \, \land  \, \frac{\partial E}{\partial t} \le \delta \implies R'_\Omega = R_\Omega \cup h_{\text{new}}
+\end{equation}
+Where the vector of inner product relations 
+\begin{equation}
+    \mathbf{h}_{\text{new}} = \beta \cdot \begin{pmatrix}
+        \sigma(\alpha_{h_1}) & \sigma(\alpha_{h_2})&... &\sigma(\alpha_{h_n})
+    \end{pmatrix}, \, h_i, h_{\text{new}} \in \mathcal{H}
+\end{equation}
+So $h_{\text{new}}$ is initialized in terms of activity of the given defined inner product space $\mathcal{H} \subset R$. \\
+
+It is also necessary to define neurogenesis conditions on non-input regions so that they need not be predefined. This requires more caution, because we don't want every region in the entire network $R \subset \mathcal{N}$ to be required to reach energy levels $E(R) > \gamma$. This would mean every concept no matter how simple would consume a lot of processing power. Perhaps we can define 
+\begin{equation}
+    E \left[ \bigcup_i^N R_i \right] < \mathfrak{E}
+\end{equation}
+
+
+\subsection{Learning Function}
+What is to be the function that learns ``good'' stable states $\mathcal{L} : \mathcal{H} \to \mathcal{H} $? We could have both global and local signals, analogous to the brain. It seems that biologically, local signals are more important in terms of learning, but global neuromodulators are important as well.
+
+\begin{equation} 
+\frac{d}{dt} K(h_i, h_j) = \lambda_{learn} \cdot \underbrace{\alpha_i(t) \cdot \alpha_j(t)}_{\text{Co-occurrence}} \cdot \underbrace{(1 - K(h_i, h_j))}_{\text{Saturation}} 
+\end{equation}
+
+
+
+\section{Another Look: Categorical / Topological Formalism}
+The entire ``interior'' space of study $\mathcal{N}$ is the set of all objects $h$ defined by the variables $x_1, x_2,...,x_n$ and the set of operators $T_1, T_2,...,T_n$, where the operators act on the variables other elements $h_i \in \mathcal{N}$. I thought for a moment that it would be interesting to allow an operator $T_{h_i}^k$ to act on another operator $T_{h_j}^l$ but that would be the same as acting on the variable that $T_{h_j}^l$ acts on by defining a composition map. As for what the variables and operators are to be should be guided by reasoning, biology, and experiment. We can add additional structure to this by defining sets $R \subset \mathcal{N}$ with measures that indicate convergence and familiarity. \\
+
+Better yet, we can define a unit of processing by a set of variables $\{ x_1, x_2, ...,x_n \}$ and how those variables are changing $\{ \frac{dx_1}{dt}, \frac{dx_2}{dt}, ...,  \frac{dx_n}{dt} \}$. To ensure that objects are not isolated, we need to define their relationship with other objects. \\
+
+Another possibility is to let subsets $U$ be "locally Hopfield." This means you can provide the subset with a given state vector $\Psi \in C$ and it will behave as a Hopfield "space"  --- either converging with rate $r$ or wandering through a subspace without limiting behavior. $\Psi$ needs to be of arbitrary dimension and there needs to be the invertible map $f: C_1 \cap C_2 \to C_2$ (invertible so that there is no loss of information). I guess to have similar definitions among the hierarchy, a neuron state can be defined as $\psi$ with two neurons having a map $g: H_1 \cap H_2 \to H_2$ if $H_1 \cap H_2 \ne \emptyset$. I don't want the map to be hard. There should be some measure of agreement $S: f \to \mathbb{R}$. Perhaps for a Hopfield space, $S$ could be defined as the difference in the excitation energy produced by $f$ and the stable energy of the local space $E(U_i) \in \mathbb{R}$ \\
+
+
+As for the concept of "convergence" which I have been quite hung up on, rather than requiring that regions or neurons "converge" to stable states called attractors, the states of two objects that intersect remain mutually compatible. \\
+
+I think it would be useful to have different notation for transient state $\Psi_t$ and learned state $\Psi_l$. The the transient state time evolution is dependent on the learned state, which evolves over much slower time scales.
+
+We want `forward' and `backward' functions, excitatory and inhibitory behavior. Perhaps using time dependent distributions in the model are the most capable at handling complex dynamics with low computational cost. The problem for me is, they're not easy to understand and do math with.
+
+\subsection{State Variables}
+Instead of using notation of $H_i \cap H_j$, we can call an object dependent on both neuron $H_i$ and $H_j$ as a synapse, $s_{ij}$. This object $s_{ij}$ describes the effect that neuron $H_i$ has on $H_j$ and $s_{ij} \ne s_{ji}$. This way we can have a consistent framework for mediation between two (potentially directly incompatible) states $H_i$ and $H_j$. \\
+
+A state variable is one $x \in H, \mathbb{R}$, such that it contains a differential equation based on time. There are multiple kinds of possible state variables. Synaptic variables can form prediction based equations or other time update variables based on the input from any $S \subset \mathcal{S} = \bigcup_i s_{ij}$. Environment variables are those whose time evolution is based on properties of larger spaces such as regions. Internal variables can form models based on strictly internal neuron properties. \\
+
+The synapse $s_{ij}$ needs to carry information over from neuron $H_i$ into the differential equations of the synaptic variables of neuron $H_j$. This essentially means that $s_{ij}$ is a function of a set of state variables in $H_j$, so $s_{ij}(\mathbf{x})$. 
+
+\subsection{Synaptic structure}
+The synapse $s_{ij}$ is a mathematical object to serve as a map between two neurons $H_i$, $H_j$. It is an enriched edge if mathematics is to be interpreted as a graph. It consists of a state $\theta_{ij}$, a transmission function $\tau_{ij}(\theta)$, and a learning rule $g_R$. It seems sensible to treat a synapse as taking the state $\psi_i \to \theta_{ij} \in [0,1)$ where 1 is a hyperbolic bound. \\
+
+The transmission $\tau(\theta)$ allows $s_{ij}$ to exhibit inhibitory or excitatory behavior. So if we have a scalar for a neuron of all inputs $\alpha(\tau_1, \tau_2,..., \tau_n)$ this can increase or decrease according to $\tau_i$. Perhaps a sensible range for $\tau \in [-1,1]$.
+
+\subsection{Model Formulation}
+In this section I will attempt to understand possible formalisms that treat neurons as models that predict future states
+\begin{equation}
+    \hat{\psi}_j(t+\delta t ) = M_j(\psi_j(t))
+\end{equation}
+What does the $M$ function look like? It should be a learned function. Let us begin with some properties the learning function should exhibit.
+\begin{enumerate}
+    \item When the neuron has low plasticity, the $M$ function is weak, meaning it weakly influences local behavior.
+    \item Low plasticity essentially forms the model function expectations of ``given this input, this is the next output''.
+    \item What does an initialized $M$ function look like?
+\end{enumerate}
+The plasticity can be affected in given regions by increased concentrations of ``dopamine''.
+In this formalism, in order to have a rich informational model $M$, the state of the synapses should be incorporated into the state function $\psi$ so as to not have a simple linear scalar predictor per neuron. Or perhaps a given synapse contributes to the prediction of the form
+\begin{equation}
+    \hat{\psi}_j = \bigoplus_i M_{ij}(\theta_{ij}(t))
+\end{equation}
+
+Now if $\psi$ is a representation of all the input information $\sum \tau(\theta)$, then $M_{ij}$ simply predicts the future synaptic activity.
+\begin{equation}
+    \psi = ( \tau_1, \tau_2, ..., \tau_n)
+\end{equation}
+with some activity $\alpha(\psi): [0,1)^n \to \mathbb{R}$. Some learning process would be to take $M(\psi(t))$ and compare it with $\psi(t+\delta)$
+
+\section{Understanding How Cortical Columns form Models}
+There are sets of neurons per region, each serving an important purpose to the greater regional mechanisms. First, there are the ``feed in'' layers. These layers are the intersections with regions or columns which are in the direction of raw input regions $R_\Omega$. \\
+
+Then there are neurons that track the ``where.'' If your thumb is moving along an object, there is a set of neurons $W$ that track the spatial position of the thumb, and these communicate with a $W$ of some other region that knows the spatial position of the object. \\
+
+In the context of language, this is like knowing the position in a sentence that you are reading. If you form a ``context'' and are reading continuously, a $W$ set will update position within that context, where if you return to the beginning of the sentence to reread, the $W$ will update accordingly. \\
+
+One layer provides the feedforward information from another region $R_i$. This layer $F$, could possibly satisfy $F_j \supset R_i \cap R_j$, meaning ``feed out'' layer of a region $R_i$ is part of the the feedforward information layer of $R_j$. The direction of information flow is to the other region  $R_i$.\\
+
+Then there are the ``feedback'' layers, which are intersections with ``deeper'' layers of the network, whose direction of information flow is into the region. \\
+
+Another layer $M$ must encode the features, representing a model storage or the ``what''. Rather than a single neuron forming complex feature models, individual neurons should form activity models and population of neurons should form complex feature models. It should be true that a small subset $m \subset M$ are active at any given point in time, allowing for a sparse distribution model, capable of representing large numbers of features. A good question is to whether there should be several $M$ sets, meaning each $R$ is capable of understanding multiple features. 
+
+
+\subsection{Activity Models}
+An instantaneous firing model involves a threshold and some form of neuron level energy function. Given some $\{ h_1, h_2,...,h_n \} = M \subset R$ then given finite ticks, the firing pattern is some discrete Poisson distribution $A(t) = \{h_i\} , \emptyset, \emptyset, \{h_j,h_k\},...$ representing the set of neurons that fire at a given tick. \\
+
+We can also interpret differently, where if energy crosses some threshold, the neuron becomes ``active'' with a natural decay function rather than a rapid reset and dispersion. The Poission distribution then becomes the neurons in $M$ that are active at a given tick (same form as $A(t)$ for instantaneous firing, different condition to be in a set).
+
+
+\subsection{Additional Neuronal Structure}
+This is just an interesting algebra that I explored that can model simple combinations of inputs by surjections. I'm not sure if it would prove to be useful in any fashion.
+\subsection{The $s$ Surjection}
+We define the state of a given neuron as $(\psi, \alpha) \in \Psi \times\mathcal{A}$. For now, we do not know the set $\Psi$, it is to be elucidated in the next section. All that is important is that given $\Psi_1 \times ... \times \Psi_n$ we can form a surjection as follows
+\begin{equation}
+    s: \Psi_1 \times ...\times \Psi_n \to \Phi, |\Phi| = n
+\end{equation}
+Meaning the entire set $\Psi_i$ gets mapped to some unique $\phi_i \in \Phi$.
+
+\subsection{The Group $G_\phi$}
+Now we can form an interesting group out of $\Phi$ with elements
+\begin{equation}
+    G_\phi  = \{1, \phi_1,...,\phi_n,\phi_{11},\phi_{12},...,\phi_{nn}\}
+\end{equation}
+Where $\phi_i\phi_j = \phi_{ij}$, $\phi_{ij}\phi_{ji} = 1$, $\phi_{i}\phi_{ii} = \phi_{ii}\phi_{i} = 1$, $\phi_{ij}\phi_k = \phi_{jk}$, $\phi_i \phi_{jk} = \phi_{jk}$, $\phi_i\phi_{ji}  = \phi_{ii}$. \\
+
+
+
+\section{Output Maps}
+Let's start with a classifier: what are the possible ways to construct output maps? It seems that having multiple regions with a voting structure is ideal. I'm thinking about how humans learn to perform actions, and it seems that it is quite Hebbian: you are provided instructions perhaps through reading or by a peer, and getting things wrong either inflicts physical pain or emotional frustration, so you seek out more information or practice physical movements until you get it right. So these global-like signals guide the evolution of complex neural structures. But how is it guided in the right direction? \\
+
+As for a classifier task, typically we try an attempt at an answer, but when we get it wrong, we are told the correct answer and \textit{why} it is the correct answer. As for a more unsupervised instance, we make assumptions about why a certain arrangement of pixels corresponds to a certain answer, then we apply these assumptions to future problems, reevaluating them if we are wrong. 
+
+\end{document}

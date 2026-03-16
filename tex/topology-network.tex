@@ -1,0 +1,317 @@
+\documentclass[twocolumn, 10pt]{article}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\title{Topological NN}
+\author{Alfred Ricker}
+\date{December 2025}
+
+\newcommand{\D}{\mathrm{d}}
+
+\begin{document}
+
+\setlength{\parindent}{0pt}
+
+\maketitle
+\section{Inspiration}
+The inspiration for this model started as contemplation of thought itself, and how the nature of modern LLMs doesn't correspond to a general intuition of human intelligence. I instead would like to develop a blueprint of ``conscious'' pattern recognition and problem solving that scales better than a classical backpropagation architecture. This is an ambitious goal, but there is a lot of interesting work to guide me.
+
+\subsection{Thousand Brains Theory}
+This is a theory of biological intelligence brought forward by Jeff Hawkins. The application of different sensory neurons developing their own models of objects can be applied to language (and more general domains $\Omega$) by splitting the neural network into regions $R_i$ and allowing regions to learn different contexts of ideas. \\
+
+``Complex objects can be represented by a set of displacement vectors which define the components of an object and how they are arranged relative to each other. This is a highly efficient means of representing and storing the structure of objects... A displacement vector placing the logo on the cup implicitly carries with it all the sub-objects of the logo. The method also allows for recursive structures. For example, the logo could contain a picture of a coffee cup with a logo. Hierarchical and recursive composition are fundamental elements of not only physical objects but language, mathematics, and other manifestations of intelligent thought.'' \\ 
+
+``When a region such as V1 passes information to another region such as V2, it is not passing representations of unclassified features but, if it can, it passes representations of complete objects.''
+
+\subsection{Global Workspace Theory}
+This theory of consciousness posits that a thought becomes conscious when it enters the ``global workspace''. ``The brain contains many specialized processes or modules that operate in parallel, much of which is unconscious. The global workspace is a functional hub of broadcast and integration that allows information to be disseminated across modules. As such GWT can be classified as a functionalist theory of consciousness.'' \\
+
+This theory is quite compatible with the thousand brains theory. It seems ridiculous to suggest that each model of a sensory input spread across our nervous system is conscious. Instead, the parallel sensory information votes on what is broadcast to the global workspace. \\
+
+From a philosophy of the mind perspective, Phenomenal Consciousness (P-Consciousness) is the subjective, "what it's like" feeling of an experience (e.g., the redness of red), while Access Consciousness (A-Consciousness) is information functionally available for reasoning, reporting, and guiding actions (e.g., knowing you see red). "Access is tied to attention, and attention is tied to report. Some views hold that attention is necessary for access, which entails phenomenal consciousness (e.g., the Global Workspace theory [section 3.1]).[4] In contrast, other theories (e.g., recurrent processing theory section 3.2]), hold that there can be phenomenal states that are not accessible. (Standford Encyclopedia)"
+
+\subsection{Equivariance}
+Something that is critical in the thousand brains theory, as well as the promising "geometric deep learning" generalization of ANN architectures, is the equivariance principle. This principle allows the network to understand an object composed into different context. For example, if we have two images of the same cat, with the cat on the left side in one image and on the right in the other, our mind understands it to be the same cat, while understanding its different context in the image. Another more complex example is the same cat moving through a cat door at different times of day. So we must incorporate into the model learning the same object in different contexts without destroying the information of the context. \\
+
+Geometric deep learning approaches the problem through symmetry groups $\mathfrak{G}$. Let $\mathfrak{g} \in \mathfrak{G}$ and the group action on $h \in R$ be denoted simply $\mathfrak{g}h$. An equivariant map is defined as
+\begin{equation}
+    B : R_i \to R_j \, \, | \, \, B(\mathfrak{g}h) = \mathfrak{g} B(h) \, \forall \mathfrak{g} \in \mathfrak{G}, h \in R_i
+\end{equation}
+which is reminiscent of the structure preserving operation in group theory, the group homomorphism. While the architecture $R$ is universal, the symmetry group to which it becomes equivariant is determined by the structure of the input domain $\Omega$.
+
+\subsection{Hebbian and Non-Hebbian}
+It seems that there are two main classes of learning implemented in the biological brain. Hebbian learning can be understood by the rule ``cells that fire together, wire together''. This is an unsupervised, local mechanism that creates a cause-effect network structure.
+
+\subsection{Biological Error Modeling}
+
+
+\section{Topological Overview}
+\subsection{Spaces}
+Having an input set over a set of domains $\mathcal{I} =\{ \Omega_1, \Omega_2,..., \Omega_n \}$ corresponds to the ability of natural minds to process a diverse set of signals into conscious decision making, such as vision, audio, hunger, temperature, etc. For the simplest construction we will start with the language domain $\Omega_L$. \\ 
+
+The overall internal space is $\mathcal{N}$, which we break up into region subsets $R$ and metric subspaces $\mathcal{H}$.
+\begin{equation}
+    \mathcal{N} = \bigcup_i R_i = \bigcup_j \mathcal{H}_j   
+\end{equation} 
+
+Let $h$ be the fundamental elements of the framework $h \in \mathcal{H} \subset \mathcal{N}$. We let $\mathcal{H}$ be an arbitrary dimensional subspace, i.e. we can always perform the operation 
+\begin{equation}
+    \mathcal{H}' = \mathcal{H} \cup \{h_n \} , \exists  \, h_m \in \mathcal{H}: \langle h_m, h_n\rangle = 0
+\end{equation}
+In English, we can add a new element $h_n$ that is orthogonal to some element in $\mathcal{H}$. This constrains us to avoid general vector space representations of the space $\mathcal{N}$, but it seems a necessary condition for flexibility and biological plausibility. \\
+
+We can define the subspace $\mathcal{H}_i$ as the space where $K$ is well defined for all $h_i, h_j$.
+\begin{equation}
+    \mathcal{H}_i = \{h_j \in \mathcal{N} \, | \, \langle h_i,h_j \rangle \ne \oslash \}
+\end{equation}
+And by definition $\langle h_i,h_i\rangle = 1$.
+
+
+\subsection{Functions}
+To add some necessary richness to the space $\mathcal{N}$, each $h\in \mathcal{H}$ is equipped with the time-dependent functions $\eta(t) : \mathcal{H} \to \mathbb{R}$ and $\alpha(t) : \mathcal{H} \to \mathbb{R}$. We call $\eta$ the \textit{plasticity} and $\alpha$ the \textit{activity} of the node (element) $h$. \\
+
+We shall also equip $h$ with a symmetric kernel function 
+\begin{equation}
+    K: \mathcal{H} \times \mathcal{H} \to [0,1] , \, K(h_i,h_j) = K(h_j,h_i) = \langle h_i, h_j \rangle
+\end{equation}
+and the asymmetric transition function
+\begin{equation}
+    T : \mathcal{H} \times \mathcal{H} \to [0,1] ,\, T(h_i,h_j) \ne T(h_j, h_i)
+\end{equation}
+
+
+\subsection{State Vector}
+We can define a state vector of a subset $\mathcal{H} \subset \mathcal{N}$ as
+\begin{equation}
+    \Psi = \sum_{h_i \in \mathcal{H}} \alpha_i h_i
+\end{equation}
+This is not a true vector, meaning the $h_i$ elements don't form a complete vector space adhering to the vector space axioms. However, it is useful to define an inner product of the form
+\begin{equation}
+    \langle \Psi, h_j \rangle = \sum_{h_i \in \mathcal{H}} \alpha_i K(h_i,h_j) \in \mathbb{R}^+ \cup \{ 0\}
+\end{equation}
+
+
+
+\section{Regions}
+\subsection{Properties}
+The idea of breaking the network up into regions with convergent functions and non-empty intersections among them sounds promising. We define regions to be subsets of the network space equipped with a convergent sequence. 
+\begin{equation}
+    h \in R_i \subset \mathcal{N}
+\end{equation}
+\begin{equation}
+    S(R)  \to S^*(R)   
+\end{equation}
+Given that the ``thousand brains'' theory suggest the brain is divided into many thousands of regions of self contained learning regions that are subject to higher region voting mechanisms, we ensure the network satisfies the \textit{Adjacency Condition}:
+\begin{equation}
+    \forall R_i \subset \mathcal{N}, \exists R_j \subset \mathcal{N}, j \ne i : R_i \cap R_j \ne \emptyset
+\end{equation}
+This ensures that no region is isolated. A result of the adjacency condition is that the network is \textit{Path Connected}. For any two regions $R_{\text{start}}, R_{\text{end}}$, there exists a sequence of regions $\{ \gamma_1, \dots, \gamma_k \}$ such that:
+\begin{equation}
+    R_{\text{start}} \cap \gamma_1 \ne \emptyset, \quad \gamma_p \cap \gamma_{p+1} \ne \emptyset, \quad \gamma_k \cap R_{\text{end}} \ne \emptyset
+\end{equation}
+
+Let an ``input" region be $R_\Omega$ on which a function is defined from the input domain space to a region
+\begin{equation}
+    \xi : \Omega_i \to R_{\Omega_i}
+\end{equation}
+Similarly, an output region is one $R_Z$ with
+\begin{equation}
+    \zeta : R_{Z_i} \to Z_i
+\end{equation}
+Where I am using $\Omega$ to represent an input domain and $Z$ to represent an output image.
+
+\subsection{Intersections}
+Under this topology, the functional maps $\mathfrak{P}_{ij}: R_i \to R_j$ are not arbitrary learned functions, but naturally emergent properties of the intersection.
+
+For adjacent regions ($R_i \cap R_j \neq \emptyset$), the map is defined as the projection of the state $\Psi_{R_i}$ onto the shared subspace $S_{ij} = R_i \cap R_j$:
+\begin{equation}
+    \mathfrak{P}_{ij}(\Psi_{R_i}) = \sum_{h \in S_{ij}} \langle \Psi_{R_i}, h \rangle h
+\end{equation}
+This effectively "leaks" the portion of the thought from Region $i$ that is intelligible to Region $j$.
+
+For non-adjacent regions, the map is the composition of these local leakages along the connectivity path $\gamma$:
+\begin{equation}
+    \mathfrak{P}_{i \to j} = \mathfrak{P}_{\gamma_k \to j} \circ \dots \circ \mathfrak{P}_{i \to \gamma_1}
+\end{equation}
+This formulation implies that information can only travel across the network if it can be "translated" through the shared vocabularies of intermediate regions.
+
+
+\subsection{Convergence Sequences}
+The paper on Deep Equilibrium models proposes a single recurrent non-linear function
+\begin{equation}
+    f(h^*) = f(h^*, x)
+\end{equation}
+where $x$ is an input vector. This is analogous to my approach, with each regional convergence function $S(R) \to S^*(R)$ acting as an implicit layer. However, we want the `layers' in the topological model have much greater flexibility than the standard forward backward pass architecture. To apply this, we write a differential equation of activity update and study its convergence and phase transition properties. 
+
+\subsection{Activity and Energy}
+We can define the total energy of a region as simply 
+\begin{equation}
+    E(R) = \sum_{h \in R} \alpha_h(t)
+\end{equation}
+We define the temporal evolution of the activation state $\alpha_h$ for a thought element $h$ using a differential equation that balances resonant excitation against intrinsic decay and competitive inhibition. The update rule is given by:
+\begin{equation}
+    \tau \frac{d \alpha_i}{dt} = -l\alpha_i + \sum_{j\ne i} \left( \frac{T_{ij} + K_{ij}}{2}\sigma(\alpha_j) - \kappa\alpha_j \right)
+\end{equation}
+The terms are defined as follows:
+\begin{itemize}
+    \item \textbf{Resonant Drive:} The term $\frac{T_{ij} + K_{ij}}{2}\sigma(\alpha_j)$ balances the symmetric and asymmetric operators, acting on the activation function $\sigma(\alpha(t))$. 
+    \item \textbf{Lateral Inhibition:} The term $-\kappa \sum \alpha_j$ forces elements in the region to compete for energy. As the total activity of the region rises, it becomes ``harder'' for any individual $h$ to grow, naturally enforcing a sparsity constraint preventing exploding gradients.
+    \item \textbf{Leak:} The constant $l$ represents the metabolic cost of activity, ensuring that unsupported thoughts decay to zero.
+\end{itemize}
+
+To satisfy the condition that strong resonance leads to growth while preventing unbounded amplification, we define $\sigma(\cdot)$ as a \textit{Scaled Sigmoid} function:
+\begin{equation}
+    \sigma(x) = \frac{A}{1 + e^{-\varrho(x - x_0)}}
+\end{equation}
+We set the amplitude $A > l$ to ensure that when the input drive $x$ is sufficiently high (i.e., when $\langle h, h' \rangle > s$), the drive $\sigma(x)$ exceeds the leak $l$, allowing $\frac{d\alpha}{dt}$ to become positive. The sigmoidal nature ensures that for very high inputs, the drive saturates rather than growing linearly, mimicking the biological refractory period and preventing runaway excitation. \\
+
+We can say that a region has converged when 
+\begin{equation}
+    \frac{\partial E}{\partial t} \le \delta
+\end{equation}
+We can also define a ``familiarity'' variable $\gamma$ that determines how familiar a region $R$ is to some concept. If $E(R_\Omega) < \gamma \, \land  \, \frac{\partial E}{\partial t} \le \delta$, this implies the input region $R_\Omega$ is unfamiliar with the input. Putting this in the context of time of input is a little tricky. However, we can define this as a starting point for neurogenesis
+\begin{equation}
+    \text{if} \, \, \, E(R_\Omega) < \gamma \, \land  \, \frac{\partial E}{\partial t} \le \delta \implies R'_\Omega = R_\Omega \cup h_{\text{new}}
+\end{equation}
+Where the kernel relations of the new neuron are defined by
+\begin{align*}
+    K(h_{\text{new}}, h_i) = \beta \cdot \sigma(\alpha_{h_i}) \,, \forall h_i \in \mathcal{H}
+\end{align*}
+So $h_{\text{new}}$ is initialized in terms of activity of the given defined inner product space $\mathcal{H} \subset R$. $\beta$ could perhaps be a function of $E_\mathcal{H}$ to prevent overexcitation. \\
+
+It is also necessary to define neurogenesis conditions on non-input regions so that they need not be predefined. This requires more caution, because we don't want every region in the entire network $R \subset \mathcal{N}$ to be required to reach energy levels $E(R) > \gamma$. This would mean every concept no matter how simple would consume a lot of processing power. Perhaps we can define 
+\begin{equation}
+    E \left[ \bigcup_i^N R_i \right] < \mathfrak{E}
+\end{equation}
+For some union of regions that connect to an important interior space $\mathcal{U}$. We take this as the connectivity sequence $\mathfrak{c} = \{ R_\Omega , \gamma_1, ..., \gamma_n, \mathcal{U}  \}$
+\begin{equation}
+    E \left[ \bigcup_{x \in \mathfrak{c}} x \right] < \mathfrak{E}
+\end{equation}
+Something to be considerate of is that this will double count some node energies, so it is likely beneficial to subtract the intersections.
+
+
+
+
+\section{Kernel Space}
+As mentioned previously, I find it to be ideal to have $h \in \mathcal{H}$ purely as abstract objects that are defined in terms of the map $K : \mathcal{H} \times \mathcal{H} \to \mathbb{R}$ where $K(h_a,h_b) = \langle h_a , h_b \rangle$,  $K(h_a, h_b) = K(h_b, h_a)$. This allows arbitrary degrees of orthogonality. However, how can such a formalism handle transient attention state and persistent memory state? What is a state of subset $\mathcal{H}$ beyond the symmetric matrix $\mathbf{K}_{ab} = K(h_a,h_b)$? Well, we can split up the system into transient, and learn dependent properties. A transient property is effective energy $\varepsilon_{\text{eff}}(h)$ or plasticity $\eta(h)$ while the kernel matrix is a learn dependent property.
+
+\subsection{Input Mapping: The Receptive Field Projection}
+The mapping from a physical domain $\Omega$ (e.g., the space of pixel intensities, acoustic frequencies) to the abstract thought space $\mathcal{H}$ requires a defined interface. We cannot directly embed raw signals into the abstract kernel space; rather, we project signals onto a set of basis sensors.
+
+Let $R_\Omega \subset \mathcal{N}$ be an ``Input Region'' consisting of a finite set of abstract anchor elements:
+\begin{equation}
+    R_\Omega = \{ s_1, s_2, \dots, s_N \}
+\end{equation}
+Each anchor $s_k$ is associated with a physical receptive field profile $\phi_k : \Omega \to \mathbb{R}$. These profiles define the sensitivity of the system to specific patterns in the input domain (e.g., Gabor filters in vision, cochlear filters in audio).
+
+We define the projection map $\xi : \Omega \to R_\Omega$ as the generation of a state vector $\Psi_\Omega$ on the region $R_\Omega$:
+\begin{equation}
+    \xi(\omega) = \Psi_\Omega = \sum_{k=1}^{N} \alpha_k(\omega) s_k
+\end{equation}
+The coefficients $\alpha_k(\omega)$ represent the activation intensity of each sensor given the input signal $\omega \in \Omega$. These are computed via the inner product on the input domain space $L^2(\Omega)$:
+\begin{equation}
+    \alpha_k(\omega) = \langle \omega, \phi_k \rangle_{L^2(\Omega)} = \int_{\Omega} \omega(x) \phi_k(x) \, dx
+\end{equation}
+
+This formulation effectively bridges the physical and abstract worlds:
+\begin{enumerate}
+    \item \textbf{Physical Layer:} The convolution $\langle \omega, \phi_k \rangle$ extracts features from the raw signal.
+    \item \textbf{Abstract Layer:} The coefficients $\alpha_k$ instantiate a state $\Psi_\Omega$ in the Hilbert space $\mathcal{H}$, allowing the raw input to interact with memory and cognitive processes via the Kernel $\mathbf{K}$.
+\end{enumerate}
+
+Thus, the ``Input State'' is defined not by the raw data, but by the coherence of the raw data with the system's inherent sensory basis.
+
+\subsection{Output Mapping: The Generator Reconstruction}
+The output mapping $\zeta$ represents the inverse of the receptive field projection: rather than analyzing a signal into coefficients, it synthesizes a signal from abstract state coefficients. This corresponds to the ``Action'' or ``Motor'' phase of the processing loop.
+
+Let $R_Z \subset \mathcal{N}$ be an ``Output Region'' (e.g., motor cortex) containing abstract actuator elements:
+\begin{equation}
+    R_Z = \{ m_1, m_2, \dots, m_M \}
+\end{equation}
+Each actuator $m_k$ is paired with a \textit{Generator Primitive} $\varphi_k \in Z$. These primitives serve as the basis functions of the output domain (e.g., muscle synergies, phonemes, or motor control vectors).
+
+Given a transient state $\Psi_{R_Z}$ in the output region defined by activity coefficients $\beta_k$:
+\begin{equation}
+    \Psi_{R_Z} = \sum_{k=1}^M \beta_k(t) m_k
+\end{equation}
+The output mapping $\zeta : R_Z \to Z$ constructs the physical signal $z \in Z$ by the linear superposition of the generator primitives weighted by the state coefficients:
+\begin{equation}
+    \zeta(\Psi_{R_Z}) = z(y) = \sum_{k=1}^M \beta_k(t) \varphi_k(y)
+\end{equation}
+where $y$ represents the coordinates in the output domain (e.g., time, spatial position of a limb).
+
+This creates a ``Constructive Interference'' model of action: complex behaviors or signals in $Z$ are formed by the weighted combination of fundamental primitive actions stored in the system's topology. \\
+
+This raises the question: which function is to learned? The $\zeta$ map, or the coefficients of the output region $\beta_k(t)$? Given that in any given region we would like to learn transient states defined by $\beta_k(t)$, we should be learning this.
+
+
+
+
+\section{Inter-Regional Dynamics}
+\subsection{State Projections}
+For adjacent regions ($R_i \cap R_j \neq \emptyset$), the map $T_{ij}: R_i \to R_j$ is defined as the projection of the state $\Psi_{R_i}$ onto the shared subspace $S_{ij} = R_i \cap R_j$:
+\begin{equation}
+    T_{ij}(\Psi_{R_i}) = \sum_{h \in S_{ij}} \langle \Psi_{R_i}, h \rangle h
+\end{equation}
+This effectively "leaks" the portion of the thought from Region $i$ that is intelligible to Region $j$.
+
+For non-adjacent regions, the map is the composition of these local leakages along the connectivity path $\gamma$:
+\begin{equation}
+    T_{i \to j} = T_{\gamma_k \to j} \circ \dots \circ T_{i \to \gamma_1}
+\end{equation}
+This formulation implies that information can only travel across the network if it can be "translated" through the shared vocabularies of intermediate regions.
+\subsection{Consensus Voting via Intersection}
+In the "Thousand Brains" formulation, object recognition is not a hierarchical filtering process but a consensus mechanism among parallel sensorimotor regions. Let two regions $R_i$ and $R_j$ (e.g., a visual patch and a tactile patch) process the same physical object. Each region generates a candidate set of potential identities, represented by a superposition of states:
+\begin{equation}
+    \Psi_{R_i} = \sum_k c_k \psi_{obj_k} \quad \text{and} \quad \Psi_{R_j} = \sum_m d_m \psi_{obj_m}
+\end{equation}
+where $\psi_{obj}$ are the eigen-states corresponding to specific object identities.
+
+We define the \textit{Consensus Operator} as the projection onto the intersection subspace $S_{ij} = R_i \cap R_j$:
+\begin{equation}
+    \Psi_{S_{ij}}(t+1) = \sigma \left( T_{ij}(\Psi_{R_i}) + T_{ij}(\Psi_{R_j}) \right)
+\end{equation}
+Because the intersection $S_{ij}$ contains only the elements $h$ common to both regions (the "associative links"), inconsistent states destructively interfere, while consistent states resonantly amplify.
+
+If $R_i$ "thinks" the object is a \textit{Cup} or \textit{Sphere}, and $R_j$ "thinks" it is a \textit{Cup} or \textit{Brick}, the energy in the intersection $S_{ij}$ will settle rapidly into the \textit{Cup} state, suppressing the inconsistent options (\textit{Sphere, Brick}) via the lateral inhibition term defined in Eq. (18).
+
+
+
+
+\section{The Global Workspace}
+\subsection{Definition}
+We define the global workspace as the set $\mathcal{U} \subset \mathcal{N}$.
+
+\subsection{Global Broadcast and The Ignition Threshold}
+Information remains local to $R_i$ until it achieves sufficient stability to "ignite" the Global Workspace $\mathcal{U}$. We define the \textit{Ignition Condition} for a region $R$ as the moment its state vector aligns with a stable attractor with high energy. \\
+
+Let $\mathcal{A}$ be the set of learned attractors (stable memories) in $R$. The broadcast strength $\beta_R$ is defined by the projection of the current state $\Psi_R$ onto the nearest attractor $\psi^* \in \mathcal{A}$:
+\begin{equation}
+    \beta_R(t) = \frac{\langle \Psi_R(t), \psi^* \rangle}{||\Psi_R(t)|| \cdot ||\psi^*||} \cdot E(R)
+\end{equation}
+The Global Workspace $\mathcal{U}$ accepts input only from regions where $\beta_R > \theta_{\text{ignite}}$. This ensures that only "confident" and "unambiguous" thoughts are broadcast to the rest of the network, preventing the global space from being flooded by noisy, transient processing states.
+
+
+
+
+
+
+\section{Learning Algorithms}
+What is to be the function that learns ``good'' stable states $\mathcal{L} : \mathcal{H} \to \mathcal{H} $? We could have both global and local signals, analogous to the brain. It seems that biologically, local signals are more important in terms of learning, but global neuromodulators are important as well.
+
+\begin{equation} 
+\frac{dK}{dt} = \eta \left( \lambda \alpha_i\alpha_j(1-K) - \mu K \right)
+\end{equation}
+
+The $\mu K$ term is a `forgetting' mechanism to prevent eternal saturation. However, we want a model to forget relationships quite slowly, so we let $\mu  \sim 0$. This is a very Hebbian differential equation, increasing the inner product for any coactive pairs $h_1, h_2 \in \mathcal{H}$.\\
+
+As for the asymmetric operator $T$,
+\begin{equation}
+    \frac{dT_{ij}}{dt} = \eta \left( \lambda \alpha_i \frac{d\alpha_j}{dt} (1-T_{ij}) - \mu T_{ij} \right) 
+\end{equation}
+
+\end{document}
