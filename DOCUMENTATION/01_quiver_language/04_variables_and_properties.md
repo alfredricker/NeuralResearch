@@ -21,7 +21,7 @@ A property is metadata attached to an object using `:`. Properties refine what a
 x : f32                // x holds 32-bit floats
 x : tsr[f32; 128]      // x holds 128-dimensional vectors
 e : Sparse(0.2)        // e has 20% random connectivity
-e : Scale(0.1)         // e weights are initialized scaled by 0.1
+e : via Scale(0.1)     // e weights are initialized scaled by 0.1
 ```
 
 The compiler enforces that a property is valid for the kind of object it is applied to. Applying a topology property to a node set, or a data type to a topology, is a compile error.

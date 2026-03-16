@@ -1,12 +1,12 @@
 # Functions and Morphs
 
-STN has two mechanisms for defining computation: `fn` for pure mathematical functions and `morph` for edge transformations that may carry learnable parameters.
+Quiver has two mechanisms for defining computation: `fn` for pure mathematical functions and `morph` for transformations that may carry learnable parameters.
 
 ## `fn` — Pure Functions
 
-`fn` declares a stateless, parameterless function. These are used for activations, normalization, and other element-level operations with no learned weights.
+`fn` declares a stateless function with no learned weights. Used for activations, normalization, and other element-level operations.
 
-```stn
+```quiver
 fn relu(x: tsr[f32; ..]) -> tsr[f32; ..] {
     Max(x, 0.0)
 }
@@ -16,22 +16,22 @@ fn gelu(x: tsr[f32; ..]) -> tsr[f32; ..] {
 }
 
 fn softmax(x: tsr[f32; n]) -> tsr[f32; n] {
-    e = Exp(x - Max(x))    // numerically stable
+    e = Exp(x - Max(x));    // numerically stable
     e / Sum(e)
 }
 
 fn layer_norm(x: tsr[f32; d], eps: f32 = 1e-5) -> tsr[f32; d] {
-    mu  = Mean(x)
-    sig = Std(x)
+    mu  = Mean(x);
+    sig = Std(x);
     (x - mu) / Sqrt(sig**2 + eps)
 }
 ```
 
-## `morph` — Edge Transformations
+## `morph` — Parameterized Transformations
 
-A `morph` defines a transformation applied along a set of edges. Unlike `fn`, a morph can declare learnable parameters with `dyn` and carry state.
+A `morph` defines a transformation that can carry `dyn` weights. Where `fn` is a pure function, a morph is an object with state and parameters.
 
-```stn
+```quiver
 morph first_conv(x: tsr[f32; 3, 32, 32]) -> tsr[f32; 16, 16, 16] {
     x |> Conv2d(in=3, out=16, kernel=3, padding=1)
       |> ReLU()
@@ -48,14 +48,12 @@ morph classify(x: tsr[f32; 32, 8, 8]) -> tsr[f32; 10] {
 
 ### Morphs with learnable parameters
 
-Use `dyn` inside a morph to declare weights that belong to the morph itself:
-
-```stn
+```quiver
 morph conv_edge(x: tsr[f32; Cin, H, W]) -> tsr[f32; Cout, H2, W2] {
-    dyn kernel: tsr[f32; Cout, Cin, K, K] = KaimingUniform()
-    dyn bias:   tsr[f32; Cout]            = Zeros()
-    stride: i32 = 1
-    pad:    i32 = 1
+    dyn kernel: tsr[f32; Cout, Cin, K, K] = KaimingUniform();
+    dyn bias:   tsr[f32; Cout]            = Zeros();
+    stride: i32 = 1;
+    pad:    i32 = 1;
 
     x |> Conv2d(kernel, bias, stride, pad)
 }
@@ -63,36 +61,37 @@ morph conv_edge(x: tsr[f32; Cin, H, W]) -> tsr[f32; Cout, H2, W2] {
 
 ## `|>` — Morphism Pipeline
 
-The `|>` operator threads a value through a sequence of transformations. Each step receives the output of the previous.
+Threads a value through a sequence of transformations left-to-right.
 
-```stn
-y = x |> Flatten() |> Linear(784, 256) |> ReLU() |> Linear(256, 10)
+```quiver
+y = x |> Flatten() |> Linear(784, 256) |> ReLU() |> Linear(256, 10);
 ```
 
-Multi-line pipelines are idiomatic for readability:
+Multi-line:
 
-```stn
+```quiver
 y = x
     |> Conv2d(in=1, out=32, kernel=3, padding=1)
     |> BatchNorm()
     |> ReLU()
     |> MaxPool2d(kernel=2, stride=2)
     |> Flatten()
-    |> Linear(in=1568, out=10)
+    |> Linear(in=1568, out=10);
 ```
 
-A morph can be called inline in a pipeline:
+Named morphs can be called inline:
 
-```stn
-y = image |> first_conv |> second_conv |> classify
+```quiver
+y = image |> first_conv |> second_conv |> classify;
 ```
 
 ## Applying a Morph to an Edge
 
-Morphs are attached to a topology using `:`:
+Morphs are attached to a topology using `via`:
 
-```stn
-x ~> y : first_conv
+```quiver
+x ~> y via first_conv;
+x ~> y : Sparse(0.2) via first_conv;    // with explicit topology
 ```
 
 ## Built-in Transformations

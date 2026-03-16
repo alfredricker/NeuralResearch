@@ -1,10 +1,10 @@
 # Algebras
 
-STN lets you define custom algebraic structures as first-class types. An `algebra` block specifies a basis and the multiplication relations between basis elements. The compiler uses these relations to generate correct arithmetic for the type.
+Quiver lets you define custom algebraic structures as first-class types. An `algebra` block specifies a basis and the multiplication relations between basis elements. The compiler uses these relations to generate correct arithmetic for the type.
 
 ## Syntax
 
-```stn
+```quiver
 algebra <Name> over <scalar_type> {
     basis { <element>, ... }
     relations { <product> = <value>, ... }
@@ -19,7 +19,7 @@ The standard alternate number types (`c32`, `sc32`, `q32`, etc.) are defined usi
 
 ### Complex Numbers
 
-```stn
+```quiver
 algebra Complex over f32 {
     basis { 1, i }
     relations { i*i = -1.0 }
@@ -28,7 +28,7 @@ algebra Complex over f32 {
 
 ### Split-Complex Numbers
 
-```stn
+```quiver
 algebra SplitComplex over f32 {
     basis { 1, j }
     relations { j*j = 1.0 }
@@ -39,7 +39,7 @@ The `j` element squares to `+1` rather than `-1`, giving a hyperbolic structure 
 
 ### Quaternions
 
-```stn
+```quiver
 algebra Quaternion over f32 {
     basis { 1, i, j, k }
     relations {
@@ -57,7 +57,7 @@ Non-commutativity is captured by specifying both `i*j` and `j*i` explicitly.
 
 Useful for forward-mode automatic differentiation:
 
-```stn
+```quiver
 algebra Dual over f32 {
     basis { 1, eps }
     relations { eps*eps = 0.0 }
@@ -70,7 +70,7 @@ A dual number `a + b*eps` carries a value `a` and its derivative `b`. Setting `e
 
 Useful for differential forms and physics-informed networks:
 
-```stn
+```quiver
 algebra Exterior3 over f32 {
     basis { 1, e1, e2, e3, e12, e13, e23, e123 }
     relations {
@@ -86,20 +86,20 @@ algebra Exterior3 over f32 {
 
 Once defined, an algebra type can be used anywhere a primitive type is valid:
 
-```stn
+```quiver
 node PhaseNode {
-    out: Complex
-    state z: Complex = 1.0 + 0.0*i
+    out: Complex;
+    state z: Complex = 1.0 + 0.0*i;
 }
 
-x = Nodes(64) : Quaternion
+x = Node[64] : Quaternion;
 ```
 
 Tensors can also be parameterized by algebra types:
 
-```stn
-tsr[Complex; 128]     // 128-dimensional complex vector
-tsr[Quaternion; 3, 3] // 3x3 matrix of quaternions
+```quiver
+tsr[Complex; 128]       // 128-dimensional complex vector
+tsr[Quaternion; 3, 3]   // 3x3 matrix of quaternions
 ```
 
 ## Operator Semantics on Algebra Types

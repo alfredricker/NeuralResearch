@@ -1,12 +1,12 @@
 # Subgraphs
 
-A `subgraph` is a named, reusable block of nodes and edges. Subgraphs are the primary unit of composition in STN — complex networks are built by nesting and connecting subgraphs.
+A `subgraph` is a named, reusable block of nodes and edges. Subgraphs are the primary unit of composition in Quiver — complex networks are built by nesting and connecting subgraphs.
 
 ## Basic Declaration
 
-```stn
+```quiver
 subgraph layer(n: u32) {
-    x = Nodes(n) : f32
+    x = Node[n] : f32;
 }
 ```
 
@@ -14,11 +14,11 @@ subgraph layer(n: u32) {
 
 Subgraphs accept typed parameters, making them templates:
 
-```stn
+```quiver
 subgraph DenseLayer(in_dim: u32, out_dim: u32) {
-    x = Nodes(in_dim)  : tsr[f32; in_dim]
-    y = Nodes(out_dim) : tsr[f32; out_dim]
-    x ~> y : All, dyn
+    x = Node[in_dim]  : tsr[f32; in_dim];
+    y = Node[out_dim] : tsr[f32; out_dim];
+    x ~> y : All, dyn;
 }
 ```
 
@@ -26,21 +26,21 @@ subgraph DenseLayer(in_dim: u32, out_dim: u32) {
 
 Subgraphs expose named `in` and `out` ports so that enclosing graphs can connect to them:
 
-```stn
+```quiver
 subgraph GridModule(n: u32) {
-    x = Nodes(n) : f32
-    x ~> x : Ring(1), fixed
+    x = Node[n] : f32;
+    x ~> x : Ring(1), fixed;
 
-    in  drive:      f32
-    out activation: tsr[f32; n]
+    in  drive:      f32;
+    out activation: tsr[f32; n];
 
-    state phase: u32 = 0
-    dyn delta:   i32 = 1
+    state phase: u32 = 0;
+    dyn delta:   i32 = 1;
 
     dynamic step {
-        phase = (phase + delta * drive) % n
+        phase = (phase + delta * drive) % n;
         for i in 0..n {
-            x[i] = if i == phase { alpha_max } else { x[i] * (1 - lambda) }
+            x[i] = if i == phase { alpha_max } else { x[i] * (1 - lambda) };
         }
     }
 }
@@ -50,11 +50,11 @@ subgraph GridModule(n: u32) {
 
 Subgraphs are instantiated by calling them like a function:
 
-```stn
+```quiver
 graph {
-    enc = DenseLayer(784, 128)
-    dec = DenseLayer(128, 784)
-    enc.y ~> dec.x : Identity
+    enc = DenseLayer(784, 128);
+    dec = DenseLayer(128, 784);
+    enc.y ~> dec.x : Identity;
 }
 ```
 
@@ -62,20 +62,20 @@ graph {
 
 Use bracket notation to create multiple instances:
 
-```stn
+```quiver
 graph {
-    layers = DenseLayer(128, 128)[0..4]   // 5 identical layers
+    layers = DenseLayer(128, 128)[0..4];    // 5 identical layers
 }
 ```
 
 Connect consecutive layers using an `index` loop:
 
-```stn
+```quiver
 graph {
-    layers = DenseLayer(128, 128)[0..4]
+    layers = DenseLayer(128, 128)[0..4];
 
     index(i, 0..3) {
-        layers[i].y ~> layers[i+1].x : Identity
+        layers[i].y ~> layers[i+1].x : Identity;
     }
 }
 ```
@@ -84,22 +84,22 @@ graph {
 
 Subgraphs can contain other subgraphs:
 
-```stn
+```quiver
 subgraph Where(L: u32, periods: [u32; L], N_ctx: u32) {
 
-    W_T = GridModule(periods[0..L])     // array of L grid modules
+    W_T = GridModule(periods[0..L]);     // array of L grid modules
 
     subgraph W_M {
-        x = Nodes(N_ctx) : f32
-        x ~ x : dyn                     // learned recurrent connections
+        x = Node[N_ctx] : f32;
+        x ~ x : dyn;                     // learned recurrent connections
     }
 
-    in  F_w
-    in  displacement: f32
-    out state
+    in  F_w;
+    in  displacement: f32;
+    out state;
 
-    F_w         ~> W_M.x    : dyn
-    displacement ~> W_T[*].drive
+    F_w          ~> W_M.x        : dyn;
+    displacement ~> W_T[*].drive;
 }
 ```
 
@@ -109,7 +109,7 @@ subgraph Where(L: u32, periods: [u32; L], N_ctx: u32) {
 
 Dot notation accesses named fields and ports:
 
-```stn
+```quiver
 region.W_T[2].activation    // activation port of the 3rd GridModule inside region
 layer[0].x                  // the x node set of the first layer
 ```
