@@ -1,0 +1,3 @@
+[workspace]
+members = ["neural_core"]
+resolver = "2"

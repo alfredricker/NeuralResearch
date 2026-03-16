@@ -1,0 +1,20 @@
+[package]
+name = "neural_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = "0.16"
+rayon = "1.10"
+rand = "0.8"
+arrow = { version = "53", features = ["ipc"] }
+parquet = "53"
+anyhow = "1"
+
+[[example]]
+name = "mnist_ffn"
+path = "examples/mnist_ffn.rs"
+
+[[example]]
+name = "mnist_cortical"
+path = "examples/mnist_cortical.rs"
