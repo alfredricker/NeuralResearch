@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use super::graph::{FlatGraph, FlatWire, NodeOrSubgraph, SubgraphDef, Wire};
 use super::node::Node;
-use super::port::{Aggregation, PortValues};
+use super::port::{Aggregation, PortSpec, PortValues};
 
 /// Errors that can occur while building / flattening a network.
 #[derive(Debug)]
@@ -26,6 +26,13 @@ pub enum BuildError {
     },
     /// Feedforward graph has a cycle — a `.recurrent()` flag is missing.
     FeedforwardCycle,
+    /// An `expose_input` or `expose_output` declaration references a child/port
+    /// that was not found after flattening.
+    UnresolvedExposedPort {
+        ext_name: &'static str,
+        child: String,
+        port: &'static str,
+    },
 }
 
 impl std::fmt::Display for BuildError {
@@ -41,6 +48,8 @@ impl std::fmt::Display for BuildError {
                 write!(f, "Sum dim mismatch on {node}::{port}: expected {expected}, got {got}"),
             BuildError::FeedforwardCycle =>
                 write!(f, "feedforward graph has a cycle — mark recurrent wires with .recurrent()"),
+            BuildError::UnresolvedExposedPort { ext_name, child, port } =>
+                write!(f, "exposed port '{ext_name}' could not be resolved: '{child}::{port}' not found"),
         }
     }
 }
@@ -73,17 +82,7 @@ impl Intermediate {
 // ─── Recursive flattening ─────────────────────────────────────────────────────
 
 /// Recursively flatten `def` into `out`, prefixing all node names with `prefix`.
-///
-/// Returns a map from (exposed_external_name, port_name) → global node index,
-/// used by the parent to wire across subgraph boundaries.
-fn flatten_def(
-    def: SubgraphDef,
-    prefix: &str,
-    out: &mut Intermediate,
-) -> HashMap<(String, &'static str), usize> {
-    // Maps local child name (within this subgraph) → global index assigned.
-    let mut local_to_global: HashMap<String, usize> = HashMap::new();
-
+fn flatten_def(def: SubgraphDef, prefix: &str, out: &mut Intermediate) {
     for (child_name, child) in def.children {
         let full_name = if prefix.is_empty() {
             child_name.clone()
@@ -104,13 +103,9 @@ fn flatten_def(
                 }
                 out.node_names.push(full_name.clone());
                 out.nodes.push(node);
-                local_to_global.insert(child_name, idx);
             }
             NodeOrSubgraph::Subgraph(sub) => {
-                // Recurse; `sub_exposed` maps (exposed_port_name, port_name) → global_idx
-                let _sub_exposed = flatten_def(sub, &full_name, out);
-                // (exposed port aliases are handled via wire remapping below)
-                local_to_global.insert(child_name, usize::MAX); // placeholder; subgraph has no single idx
+                flatten_def(sub, &full_name, out);
             }
         }
     }
@@ -135,20 +130,6 @@ fn flatten_def(
             recurrent: wire.recurrent,
         });
     }
-
-    // Build exposed-port aliases (no new nodes).
-    let mut exposed: HashMap<(String, &'static str), usize> = HashMap::new();
-    for (ext_name, child_name, child_port) in def.exposed_inputs.iter().chain(def.exposed_outputs.iter()) {
-        let child_full = if prefix.is_empty() {
-            child_name.clone()
-        } else {
-            format!("{prefix}/{child_name}")
-        };
-        if let Some(&(node_idx, _)) = out.port_map.get(&(child_full, child_port)) {
-            exposed.insert((ext_name.clone(), child_port), node_idx);
-        }
-    }
-    exposed
 }
 
 // ─── Topological sort (Kahn's algorithm) ─────────────────────────────────────
@@ -185,6 +166,10 @@ fn kahn_sort(n: usize, ff_wires: &[FlatWire]) -> Result<Vec<usize>, BuildError> 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 pub fn flatten_and_build(def: SubgraphDef) -> Result<FlatGraph, BuildError> {
+    // Snapshot exposed-port declarations before consuming `def`.
+    let exposed_inputs  = def.exposed_inputs.clone();
+    let exposed_outputs = def.exposed_outputs.clone();
+
     let mut inter = Intermediate::new();
     flatten_def(def, "", &mut inter);
 
@@ -235,14 +220,12 @@ pub fn flatten_and_build(def: SubgraphDef) -> Result<FlatGraph, BuildError> {
     }
 
     // Validate aggregation dimensions.
-    // Group feedforward wires by destination port.
     let mut dst_groups: HashMap<(usize, &'static str), Vec<usize>> = HashMap::new();
     for (wi, w) in ff_wires.iter().enumerate() {
         dst_groups.entry((w.dst, w.dst_port)).or_default().push(wi);
     }
 
     for ((dst_idx, dst_port), wire_indices) in &dst_groups {
-        // Find the port spec on the destination node.
         let dst_node = &inter.nodes[*dst_idx];
         let dst_spec = dst_node
             .input_ports()
@@ -315,6 +298,67 @@ pub fn flatten_and_build(def: SubgraphDef) -> Result<FlatGraph, BuildError> {
         .map(|nd| PortValues::zeros_from(nd.output_ports()))
         .collect();
 
+    // ── Resolve exposed ports ──────────────────────────────────────────────
+    //
+    // For each expose_input declaration (ext_name, child_name, child_port):
+    //   1. Look up child_name in port_map to get the internal node index.
+    //   2. Validate by finding the port in the node's *input_ports()*.
+    //   3. Record the PortSpec (with ext_name) and the binding.
+    //
+    // Same for expose_output but validate against *output_ports()*.
+
+    let mut exposed_input_specs: Vec<PortSpec> = Vec::new();
+    let mut input_bindings: Vec<(usize, &'static str)> = Vec::new();
+
+    for &(ext_name, ref child_name, child_port) in &exposed_inputs {
+        let (node_idx, _) = inter
+            .port_map
+            .get(&(child_name.clone(), child_port))
+            .copied()
+            .ok_or(BuildError::UnresolvedExposedPort {
+                ext_name,
+                child: child_name.clone(),
+                port: child_port,
+            })?;
+        let spec = inter.nodes[node_idx]
+            .input_ports()
+            .iter()
+            .find(|s| s.name == child_port)
+            .ok_or(BuildError::UnresolvedExposedPort {
+                ext_name,
+                child: child_name.clone(),
+                port: child_port,
+            })?;
+        exposed_input_specs.push(PortSpec { name: ext_name, dim: spec.dim, agg: spec.agg.clone() });
+        input_bindings.push((node_idx, child_port));
+    }
+
+    let mut exposed_output_specs: Vec<PortSpec> = Vec::new();
+    let mut output_bindings: Vec<(usize, &'static str)> = Vec::new();
+
+    for &(ext_name, ref child_name, child_port) in &exposed_outputs {
+        let (node_idx, _) = inter
+            .port_map
+            .get(&(child_name.clone(), child_port))
+            .copied()
+            .ok_or(BuildError::UnresolvedExposedPort {
+                ext_name,
+                child: child_name.clone(),
+                port: child_port,
+            })?;
+        let spec = inter.nodes[node_idx]
+            .output_ports()
+            .iter()
+            .find(|s| s.name == child_port)
+            .ok_or(BuildError::UnresolvedExposedPort {
+                ext_name,
+                child: child_name.clone(),
+                port: child_port,
+            })?;
+        exposed_output_specs.push(PortSpec { name: ext_name, dim: spec.dim, agg: spec.agg.clone() });
+        output_bindings.push((node_idx, child_port));
+    }
+
     Ok(FlatGraph {
         nodes: inter.nodes,
         feedforward_wires: ff_wires,
@@ -323,6 +367,10 @@ pub fn flatten_and_build(def: SubgraphDef) -> Result<FlatGraph, BuildError> {
         input_bufs,
         output_bufs,
         recurrent_bufs,
+        exposed_input_specs,
+        exposed_output_specs,
+        input_bindings,
+        output_bindings,
     })
 }
 
@@ -379,11 +427,9 @@ mod tests {
 
     #[test]
     fn dim_mismatch_gives_error() {
-        // b expects Concat dim=4, but a only outputs 2.
         let mut def = SubgraphDef::new("root");
         def.children.insert("a".into(), NodeOrSubgraph::Node(Box::new(Echo::new(2))));
         def.children.insert("b".into(), NodeOrSubgraph::Node(Box::new(
-            // Manually build a node with Concat dim=4 on input.
             struct_with_input_dim(4)
         )));
         def.wires.push(Wire {
@@ -396,7 +442,6 @@ mod tests {
 
     #[test]
     fn cycle_without_recurrent_gives_error() {
-        // a → b → a  (cycle, no recurrent flag)
         let mut def = SubgraphDef::new("root");
         def.children.insert("a".into(), NodeOrSubgraph::Node(Box::new(Echo::new(2))));
         def.children.insert("b".into(), NodeOrSubgraph::Node(Box::new(Echo::new(2))));
@@ -417,13 +462,11 @@ mod tests {
 
     #[test]
     fn nested_subgraph_flattens() {
-        // inner: a → b
         let mut inner = SubgraphDef::new("inner");
         inner.children.insert("a".into(), NodeOrSubgraph::Node(Box::new(Echo::new(2))));
         inner.children.insert("b".into(), NodeOrSubgraph::Node(Box::new(Echo::new(2))));
         inner.wires.push(Wire { src_node: "a".into(), src_port: "out", dst_node: "b".into(), dst_port: "in", recurrent: false });
 
-        // outer: inner → c
         let mut outer = SubgraphDef::new("root");
         outer.children.insert("inner".into(), NodeOrSubgraph::Subgraph(inner));
         outer.children.insert("c".into(), NodeOrSubgraph::Node(Box::new(Echo::new(2))));
@@ -435,6 +478,67 @@ mod tests {
 
         let fg = flatten_and_build(outer).expect("nested build failed");
         assert_eq!(fg.node_count(), 3);
+    }
+
+    // ── New tests: exposed ports ───────────────────────────────────────────
+
+    #[test]
+    fn expose_input_routes_data_to_internal_node() {
+        let mut def = SubgraphDef::new("tpl");
+        def.children.insert("e".into(), NodeOrSubgraph::Node(Box::new(Echo::new(4))));
+        def.exposed_inputs.push(("in", "e".into(), "in"));
+        def.exposed_outputs.push(("out", "e".into(), "out"));
+
+        let mut fg = flatten_and_build(def).expect("build");
+
+        // Verify specs were populated.
+        assert_eq!(fg.exposed_input_specs.len(), 1);
+        assert_eq!(fg.exposed_input_specs[0].name, "in");
+        assert_eq!(fg.exposed_output_specs.len(), 1);
+
+        // Tick via Node trait (dynamic dispatch).
+        let mut inputs  = PortValues::zeros_from(&fg.exposed_input_specs);
+        let mut outputs = PortValues::zeros_from(&fg.exposed_output_specs);
+        inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 2.0, 3.0, 4.0]);
+
+        let node: &mut dyn Node = &mut fg;
+        node.tick(&inputs, &mut outputs);
+
+        assert_eq!(outputs.get("out").unwrap(), &[1.0f32, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn expose_output_reads_from_internal_node() {
+        // Single node, expose its output under a different external name.
+        let mut def = SubgraphDef::new("tpl");
+        def.children.insert("e".into(), NodeOrSubgraph::Node(Box::new(Echo::new(3))));
+        def.exposed_inputs.push(("data", "e".into(), "in"));
+        def.exposed_outputs.push(("result", "e".into(), "out"));
+
+        let mut fg = flatten_and_build(def).expect("build");
+        assert_eq!(fg.exposed_output_specs[0].name, "result");
+
+        let mut inputs  = PortValues::zeros_from(&fg.exposed_input_specs);
+        let mut outputs = PortValues::zeros_from(&fg.exposed_output_specs);
+        inputs.get_mut("data").unwrap().copy_from_slice(&[9.0, 8.0, 7.0]);
+
+        let node: &mut dyn Node = &mut fg;
+        node.tick(&inputs, &mut outputs);
+
+        assert_eq!(outputs.get("result").unwrap(), &[9.0f32, 8.0, 7.0]);
+    }
+
+    #[test]
+    fn unresolved_exposed_port_gives_error() {
+        let mut def = SubgraphDef::new("tpl");
+        def.children.insert("e".into(), NodeOrSubgraph::Node(Box::new(Echo::new(2))));
+        // "ghost" node does not exist.
+        def.exposed_inputs.push(("in", "ghost".into(), "in"));
+
+        assert!(matches!(
+            flatten_and_build(def),
+            Err(BuildError::UnresolvedExposedPort { .. })
+        ));
     }
 
     // Helper: build an Echo-like node with a custom input dim.

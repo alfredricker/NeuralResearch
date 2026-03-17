@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 use super::node::Node;
-use super::port::PortValues;
+use super::port::{PortSpec, PortValues};
 
 /// A directed connection between two ports in a `SubgraphDef`.
 #[derive(Clone, Debug)]
@@ -28,8 +28,8 @@ pub struct SubgraphDef {
     pub(super) children: IndexMap<String, NodeOrSubgraph>,
     pub(super) wires: Vec<Wire>,
     /// (external_port_name, child_name, child_port_name)
-    pub(super) exposed_inputs: Vec<(String, String, &'static str)>,
-    pub(super) exposed_outputs: Vec<(String, String, &'static str)>,
+    pub(super) exposed_inputs: Vec<(&'static str, String, &'static str)>,
+    pub(super) exposed_outputs: Vec<(&'static str, String, &'static str)>,
 }
 
 impl SubgraphDef {
@@ -57,6 +57,10 @@ pub struct FlatWire {
 // ─── FlatGraph ────────────────────────────────────────────────────────────────
 
 /// Run-time flat graph produced by flattening + validating a `SubgraphDef`.
+///
+/// When `exposed_input_specs` / `exposed_output_specs` are non-empty this
+/// graph also implements `Node` and can be plugged into a parent
+/// `NetworkBuilder` as a composable template.
 pub struct FlatGraph {
     pub(super) nodes: Vec<Box<dyn Node + Send>>,
     pub(super) feedforward_wires: Vec<FlatWire>,
@@ -66,10 +70,23 @@ pub struct FlatGraph {
     pub(super) output_bufs: Vec<PortValues>,
     /// Previous-tick snapshot of recurrent-source output buffers.
     pub(super) recurrent_bufs: Vec<PortValues>,
+
+    // ── Template / Node interface ──────────────────────────────────────────
+    /// Declared input ports when this graph is used as a `Node`.
+    pub(super) exposed_input_specs: Vec<PortSpec>,
+    /// Declared output ports when this graph is used as a `Node`.
+    pub(super) exposed_output_specs: Vec<PortSpec>,
+    /// Maps exposed-input index → (internal node_idx, port name).
+    pub(super) input_bindings: Vec<(usize, &'static str)>,
+    /// Maps exposed-output index → (internal node_idx, port name).
+    pub(super) output_bindings: Vec<(usize, &'static str)>,
 }
 
 impl FlatGraph {
-    /// One tick: propagate activations through all nodes in topological order.
+    // ── Root-level entry points ────────────────────────────────────────────
+
+    /// One tick for a *root* graph: propagate activations through all nodes in
+    /// topological order.
     ///
     /// `external` is applied to nodes that have no feedforward inputs
     /// (sensory nodes).  Its ports must match the sensory node's input ports.
@@ -103,6 +120,28 @@ impl FlatGraph {
             }
         }
 
+        self.tick_internal();
+    }
+
+    /// Hebbian learning at every node (same order as tick).
+    /// For root-level use — reads from the `input_bufs` left by the previous
+    /// `tick` call.
+    pub fn learn(&mut self, _external: &PortValues) {
+        for &i in &self.exec_order.clone() {
+            self.nodes[i].learn(&self.input_bufs[i]);
+        }
+    }
+
+    /// Number of nodes in the flat graph.
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    // ── Internal implementation ────────────────────────────────────────────
+
+    /// Execute steps 3–5 of a tick (recurrent copy → exec loop → snapshot).
+    /// Called by both the root `tick` and the `Node::tick` implementation.
+    fn tick_internal(&mut self) {
         // 3. Copy recurrent buffers (prev-tick values) → destination inputs.
         for w in &self.recurrent_wires {
             let src_data: Vec<f32> = self.recurrent_bufs[w.src]
@@ -121,7 +160,6 @@ impl FlatGraph {
         let order = self.exec_order.clone();
         for &i in &order {
             // Split borrows: tick reads input_bufs[i], writes output_bufs[i].
-            // We need to temporarily swap out the buffers to satisfy the borrow checker.
             let mut out = std::mem::replace(
                 &mut self.output_bufs[i],
                 PortValues::zeros_from(self.nodes[i].output_ports()),
@@ -130,7 +168,6 @@ impl FlatGraph {
             self.output_bufs[i] = out;
 
             // Fan-out: write output into downstream input_bufs.
-            // Collect wire targets first to avoid borrow conflicts.
             let targets: Vec<(usize, &'static str, &'static str)> = self
                 .feedforward_wires
                 .iter()
@@ -160,17 +197,85 @@ impl FlatGraph {
             }
         }
     }
+}
 
-    /// Hebbian learning at every node (same order as tick).
-    pub fn learn(&mut self, _external: &PortValues) {
-        for &i in &self.exec_order.clone() {
-            self.nodes[i].learn(&self.input_bufs[i]);
+// ─── impl Node for FlatGraph (template interface) ────────────────────────────
+
+/// A compiled `FlatGraph` with exposed ports can be used as a `Node` inside a
+/// parent `NetworkBuilder`, turning it into a reusable template.
+impl Node for FlatGraph {
+    fn input_ports(&self) -> &[PortSpec] {
+        &self.exposed_input_specs
+    }
+
+    fn output_ports(&self) -> &[PortSpec] {
+        &self.exposed_output_specs
+    }
+
+    fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+        // Zero all internal input buffers.
+        for buf in &mut self.input_bufs {
+            buf.zero_all();
+        }
+
+        // Route exposed inputs → internal nodes' input_bufs.
+        // Collect bindings first to avoid simultaneous borrow conflicts.
+        let in_bindings: Vec<(&'static str, usize, &'static str)> = self
+            .exposed_input_specs
+            .iter()
+            .zip(self.input_bindings.iter())
+            .map(|(spec, &(node_idx, port))| (spec.name, node_idx, port))
+            .collect();
+        for &(spec_name, node_idx, port) in &in_bindings {
+            if let Some(src) = inputs.get(spec_name) {
+                let src = src.to_vec();
+                if let Some(dst) = self.input_bufs[node_idx].get_mut(port) {
+                    let len = dst.len().min(src.len());
+                    dst[..len].copy_from_slice(&src[..len]);
+                }
+            }
+        }
+
+        self.tick_internal();
+
+        // Read internal output_bufs → exposed outputs.
+        let out_bindings: Vec<(&'static str, usize, &'static str)> = self
+            .exposed_output_specs
+            .iter()
+            .zip(self.output_bindings.iter())
+            .map(|(spec, &(node_idx, port))| (spec.name, node_idx, port))
+            .collect();
+        for &(spec_name, node_idx, port) in &out_bindings {
+            if let Some(src_slice) = self.output_bufs[node_idx].get(port) {
+                let src = src_slice.to_vec();
+                if let Some(dst) = outputs.get_mut(spec_name) {
+                    let len = dst.len().min(src.len());
+                    dst[..len].copy_from_slice(&src[..len]);
+                }
+            }
         }
     }
 
-    /// Number of nodes in the flat graph.
-    pub fn node_count(&self) -> usize {
-        self.nodes.len()
+    fn learn(&mut self, inputs: &PortValues) {
+        // Route exposed inputs → internal nodes' input_bufs.
+        let in_bindings: Vec<(&'static str, usize, &'static str)> = self
+            .exposed_input_specs
+            .iter()
+            .zip(self.input_bindings.iter())
+            .map(|(spec, &(node_idx, port))| (spec.name, node_idx, port))
+            .collect();
+        for &(spec_name, node_idx, port) in &in_bindings {
+            if let Some(src) = inputs.get(spec_name) {
+                let src = src.to_vec();
+                if let Some(dst) = self.input_bufs[node_idx].get_mut(port) {
+                    let len = dst.len().min(src.len());
+                    dst[..len].copy_from_slice(&src[..len]);
+                }
+            }
+        }
+        for &i in &self.exec_order.clone() {
+            self.nodes[i].learn(&self.input_bufs[i]);
+        }
     }
 }
 
@@ -201,14 +306,6 @@ fn apply_wire_data(
             }
         }
         Aggregation::Concat => {
-            // Find the first zero-run at the tail of `dst` (the unfilled
-            // portion), and write `src_data` there.
-            // A simpler strategy: find offset = number of already-filled bytes.
-            // We track fill position by scanning from the end.
-            // Actually the cleanest approach: scan for contiguous zeros at end.
-            // For correctness we track fill via a "write cursor" stored in the
-            // first zero region.  Since Concat ports are zero-initialised
-            // each tick, the cursor is just the index of the first 0.0 value.
             let cursor = dst.iter().position(|&x| x == 0.0).unwrap_or(dst.len());
             let space = dst.len().saturating_sub(cursor);
             let len = space.min(src_data.len());
@@ -269,6 +366,10 @@ mod tests {
             input_bufs:    vec![in0,  in1],
             output_bufs:   vec![out0, out1],
             recurrent_bufs: vec![rec0, rec1],
+            exposed_input_specs:  vec![],
+            exposed_output_specs: vec![],
+            input_bindings:  vec![],
+            output_bindings: vec![],
         };
 
         let mut ext = PortValues::zeros_from(&[
