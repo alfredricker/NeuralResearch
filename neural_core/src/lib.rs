@@ -1,4 +1,5 @@
 pub mod activation;
+pub mod module;
 pub mod graph;
 pub mod learning;
 pub mod networks;
