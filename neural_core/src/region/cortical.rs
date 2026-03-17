@@ -1,7 +1,8 @@
 use crate::activation::sigma;
 use crate::graph::{CsrGraph, GraphBuilder};
 use crate::learning::{HebbianRule, LearningRule};
-use super::{GridBank, RegionModule};
+use crate::network::{Aggregation, Node, PortSpec, PortValues};
+use super::GridBank;
 
 /// CorticalRegion wires together three streams per the Cortical.tex equations:
 ///
@@ -163,29 +164,67 @@ impl CorticalRegion {
     }
 }
 
-// ─── RegionModule impl ───────────────────────────────────────────────────────
+// ─── Node (generic graph) impl ───────────────────────────────────────────────
 
-/// `CorticalRegion` participates in hierarchies through the `RegionModule` trait.
+/// Port constants for `CorticalRegion` when used as a graph `Node`.
 ///
-/// The trait methods delegate to the inherent `step` / `output` / `learn_*`
-/// methods so that direct usage of the concrete type and trait-object usage
-/// behave identically.
-impl RegionModule for CorticalRegion {
-    #[inline] fn n_in(&self)  -> usize { self.n_input }
-    #[inline] fn n_out(&self) -> usize { self.n_model }
-
-    fn tick(&mut self, input: &[f32]) {
-        self.step(input);
+/// - `feedforward` (Concat): concatenated sensory input from lower regions.
+/// - `feedback`    (Sum):    top-down modulatory signal (optional, same dim as n_model).
+/// - `feed_out`    (Concat): the region's model-layer activations as output.
+impl CorticalRegion {
+    fn _input_port_specs(&self) -> Vec<PortSpec> {
+        vec![
+            PortSpec { name: "feedforward", dim: self.n_input, agg: Aggregation::Concat },
+            PortSpec { name: "feedback",    dim: self.n_model, agg: Aggregation::Sum   },
+        ]
     }
 
-    fn output(&self) -> &[f32] {
-        // Calls the inherent `output` method — not recursive.
-        CorticalRegion::output(self)
+    fn _output_port_specs(&self) -> Vec<PortSpec> {
+        vec![
+            PortSpec { name: "feed_out", dim: self.n_model, agg: Aggregation::Concat },
+        ]
+    }
+}
+
+/// Cached per-instance port specs (built once, borrowed on every tick).
+///
+/// Because `Node::input_ports` returns `&[PortSpec]` we store the specs inside
+/// the struct via a lazily-initialised `OnceCell`-like field.  To keep things
+/// simple we just build them in `new` and store them directly.
+pub struct CorticalRegionNode {
+    inner: CorticalRegion,
+    input_specs:  Vec<PortSpec>,
+    output_specs: Vec<PortSpec>,
+}
+
+impl CorticalRegionNode {
+    pub fn new(inner: CorticalRegion) -> Self {
+        let input_specs  = inner._input_port_specs();
+        let output_specs = inner._output_port_specs();
+        Self { inner, input_specs, output_specs }
+    }
+}
+
+impl Node for CorticalRegionNode {
+    fn input_ports(&self) -> &[PortSpec] {
+        &self.input_specs
     }
 
-    fn learn(&mut self, input: &[f32]) {
-        self.learn_ff(input);
-        self.learn_rr();
+    fn output_ports(&self) -> &[PortSpec] {
+        &self.output_specs
+    }
+
+    fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+        let ff = inputs.get("feedforward").expect("feedforward port missing");
+        self.inner.step(ff);
+        let out = outputs.get_mut("feed_out").expect("feed_out port missing");
+        out.copy_from_slice(self.inner.output());
+    }
+
+    fn learn(&mut self, inputs: &PortValues) {
+        let ff = inputs.get("feedforward").expect("feedforward port missing");
+        self.inner.learn_ff(ff);
+        self.inner.learn_rr();
     }
 }
 
@@ -211,15 +250,22 @@ mod tests {
     }
 
     #[test]
-    fn region_module_trait() {
+    fn cortical_region_node_trait() {
+        use crate::network::{Node, PortValues, PortSpec, Aggregation};
+
         let mut rng = rand::thread_rng();
-        let mut region: Box<dyn RegionModule + Send> = Box::new(
-            CorticalRegion::new(16, 8, &[(5, 1)], 0.1, &mut rng)
-        );
-        assert_eq!(region.n_in(), 8);
-        assert_eq!(region.n_out(), 16);
-        let input = vec![0.3f32; 8];
-        region.tick(&input);
-        assert_eq!(region.output().len(), 16);
+        let region = CorticalRegion::new(16, 8, &[(5, 1)], 0.1, &mut rng);
+        let mut node = CorticalRegionNode::new(region);
+
+        assert_eq!(node.input_ports().len(), 2);
+        assert_eq!(node.output_ports().len(), 1);
+
+        let inputs = PortValues::zeros_from(&[
+            PortSpec { name: "feedforward", dim: 8, agg: Aggregation::Concat },
+            PortSpec { name: "feedback",    dim: 16, agg: Aggregation::Sum   },
+        ]);
+        let mut outputs = PortValues::zeros_from(node.output_ports());
+        node.tick(&inputs, &mut outputs);
+        assert_eq!(outputs.get("feed_out").unwrap().len(), 16);
     }
 }

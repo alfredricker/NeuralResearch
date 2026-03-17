@@ -4093,9 +4093,9 @@ dependencies = [
  "anyhow",
  "arrow",
  "burn",
+ "indexmap",
  "parquet",
  "rand 0.8.5",
- "rayon",
 ]
 
 [[package]]
