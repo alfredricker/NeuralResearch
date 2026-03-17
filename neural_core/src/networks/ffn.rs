@@ -1,128 +1,164 @@
-/// Two-layer feedforward network with manual backprop.
-///
-/// Architecture: input → hidden (ReLU) → output (softmax)
-/// Loss: cross-entropy
-///
-/// Weight shapes:
-///   w1: hidden × input
-///   b1: hidden
-///   w2: output × hidden
-///   b2: output
-use ndarray::{Array1, Array2};
-use crate::activation::{relu, relu_prime};
+//! Feedforward network (MLP) built on the Burn deep-learning framework.
+//!
+//! Architecture: input → hidden (ReLU) → output (logits)
+//! Training:     Adam optimiser + cross-entropy loss, mini-batch SGD
+//!
+//! Requires the `ndarray` feature of the `burn` crate (CPU backend).
 
-pub struct FeedForwardNet {
-    pub w1: Array2<f32>,
-    pub b1: Array1<f32>,
-    pub w2: Array2<f32>,
-    pub b2: Array1<f32>,
+use burn::{
+    config::Config,
+    module::{AutodiffModule, Module},
+    nn::{Linear, LinearConfig},
+    nn::loss::CrossEntropyLossConfig,
+    optim::{adaptor::OptimizerAdaptor, Adam, AdamConfig, GradientsParams, Optimizer},
+    tensor::{
+        backend::Backend,
+        Int, Tensor, TensorData,
+    },
+};
+
+/// Concrete optimizer type: `OptimizerAdaptor` wraps the stateless `Adam` update
+/// rule and tracks per-parameter moment state via Burn's adaptor pattern.
+type MyOptim = OptimizerAdaptor<Adam, Mlp<TrainBackend>, TrainBackend>;
+
+/// CPU-only inference backend (pure-Rust NdArray, no external deps required).
+pub type InferenceBackend = burn::backend::NdArray;
+/// Training backend – wraps NdArray with automatic differentiation.
+pub type TrainBackend = burn::backend::Autodiff<InferenceBackend>;
+
+// ─── Model ───────────────────────────────────────────────────────────────────
+
+/// Two-layer MLP.  Generic over `B` so the same type works for both training
+/// (`TrainBackend`) and inference (`InferenceBackend`).
+///
+/// Note: `Module` already derives `Clone`; do not add a manual `Clone` derive.
+#[derive(Module, Debug)]
+pub struct Mlp<B: Backend> {
+    fc1: Linear<B>,
+    fc2: Linear<B>,
+}
+
+/// Configuration for building an [`Mlp`].
+#[derive(Config, Debug)]
+pub struct MlpConfig {
     pub n_input: usize,
     pub n_hidden: usize,
     pub n_output: usize,
-    pub lr: f32,
+}
+
+impl MlpConfig {
+    /// Initialise an [`Mlp`] on `device` with Burn's default weight init.
+    pub fn init<B: Backend>(&self, device: &B::Device) -> Mlp<B> {
+        Mlp {
+            fc1: LinearConfig::new(self.n_input, self.n_hidden).init(device),
+            fc2: LinearConfig::new(self.n_hidden, self.n_output).init(device),
+        }
+    }
+}
+
+impl<B: Backend> Mlp<B> {
+    /// `[batch, n_input]` → `[batch, n_output]` (raw logits, no softmax)
+    pub fn forward(&self, x: Tensor<B, 2>) -> Tensor<B, 2> {
+        let x = self.fc1.forward(x);
+        let x = burn::tensor::activation::relu(x);
+        self.fc2.forward(x)
+    }
+}
+
+// ─── Trainer ─────────────────────────────────────────────────────────────────
+
+/// Stores an [`Mlp`] + Adam optimiser ready for mini-batch training.
+///
+/// The model is held in `Option` because Burn's `Optimizer::step` consumes
+/// the model by value and returns an updated copy.
+///
+/// `burn::optim::Adam` has no generic parameters in 0.20; parameter identity
+/// is tracked internally by Burn via each parameter's unique ID.
+pub struct FeedForwardNet {
+    model: Option<Mlp<TrainBackend>>,
+    optim: MyOptim,
+    device: <TrainBackend as Backend>::Device,
+    lr: f64,
 }
 
 impl FeedForwardNet {
     pub fn new(n_input: usize, n_hidden: usize, n_output: usize, lr: f32) -> Self {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
-        // He initialization for ReLU
-        let scale1 = (2.0 / n_input as f32).sqrt();
-        let scale2 = (2.0 / n_hidden as f32).sqrt();
-
-        let w1 = Array2::from_shape_fn((n_hidden, n_input), |_| rng.gen::<f32>() * scale1 - scale1 / 2.0);
-        let b1 = Array1::zeros(n_hidden);
-        let w2 = Array2::from_shape_fn((n_output, n_hidden), |_| rng.gen::<f32>() * scale2 - scale2 / 2.0);
-        let b2 = Array1::zeros(n_output);
-
-        Self { w1, b1, w2, b2, n_input, n_hidden, n_output, lr }
+        let device = Default::default();
+        let model = MlpConfig::new(n_input, n_hidden, n_output).init(&device);
+        let optim = AdamConfig::new().init();
+        Self { model: Some(model), optim, device, lr: lr as f64 }
     }
 
-    /// Forward pass, returns (pre1, h, pre2, probs).
-    fn forward(&self, x: &Array1<f32>) -> (Array1<f32>, Array1<f32>, Array1<f32>, Array1<f32>) {
-        let pre1 = self.w1.dot(x) + &self.b1;
-        let h = pre1.mapv(relu);
-        let pre2 = self.w2.dot(&h) + &self.b2;
-        let probs = softmax(&pre2);
-        (pre1, h, pre2, probs)
+    /// One Adam step on a mini-batch. Returns the average cross-entropy loss.
+    pub fn train_step(&mut self, batch: &[(Vec<f32>, usize)]) -> f32 {
+        let n = batch.len();
+        let n_input = batch[0].0.len();
+
+        let flat: Vec<f32> = batch.iter()
+            .flat_map(|(p, _)| p.iter().copied())
+            .collect();
+        let x = Tensor::<TrainBackend, 2>::from_data(
+            TensorData::new(flat, vec![n, n_input]), &self.device);
+
+        let labels: Vec<i32> = batch.iter().map(|(_, l)| *l as i32).collect();
+        let y = Tensor::<TrainBackend, 1, Int>::from_data(
+            TensorData::new(labels, vec![n]), &self.device);
+
+        let model = self.model.take().expect("model present");
+        let logits = model.forward(x);
+        let loss = CrossEntropyLossConfig::new()
+            .init::<TrainBackend>(&self.device)
+            .forward(logits, y);
+
+        // Save scalar before backward() consumes the tensor.
+        let loss_val = loss.clone().into_scalar();
+
+        let grads = loss.backward();
+        let grads_params = GradientsParams::from_grads(grads, &model);
+        self.model = Some(self.optim.step(self.lr, model, grads_params));
+
+        loss_val
     }
 
-    /// Predict class for a single example.
-    pub fn predict(&self, x: &Array1<f32>) -> usize {
-        let (_, _, _, probs) = self.forward(x);
-        probs.iter()
+    /// Predict class index for a single example (inference mode, no grad tracking).
+    pub fn predict(&self, pixels: &[f32]) -> usize {
+        let device: <InferenceBackend as Backend>::Device = Default::default();
+        let x = Tensor::<InferenceBackend, 2>::from_data(
+            TensorData::new(pixels.to_vec(), vec![1, pixels.len()]), &device);
+        // model.valid() strips autodiff wrappers for pure inference.
+        let logits = self.model.as_ref().unwrap().valid().forward(x);
+        let values = logits.into_data().to_vec::<f32>().unwrap();
+        values.iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(i, _)| i)
             .unwrap_or(0)
     }
-
-    /// One gradient step on a single example. Returns cross-entropy loss.
-    pub fn train_step(&mut self, x: &Array1<f32>, label: usize) -> f32 {
-        let (pre1, h, _pre2, probs) = self.forward(x);
-
-        // Cross-entropy loss
-        let loss = -probs[label].max(1e-10).ln();
-
-        // Backprop — output layer
-        let mut d_pre2 = probs.clone();
-        d_pre2[label] -= 1.0;  // ∂L/∂pre2 for softmax + cross-entropy
-
-        let dw2 = outer(&d_pre2, &h);
-        let db2 = d_pre2.clone();
-
-        // Backprop — hidden layer
-        let dh = self.w2.t().dot(&d_pre2);
-        let d_pre1 = dh * pre1.mapv(relu_prime);
-
-        let dw1 = outer(&d_pre1, x);
-        let db1 = d_pre1;
-
-        // SGD update
-        self.w2 -= &(dw2 * self.lr);
-        self.b2 -= &(db2 * self.lr);
-        self.w1 -= &(dw1 * self.lr);
-        self.b1 -= &(db1 * self.lr);
-
-        loss
-    }
-}
-
-fn softmax(x: &Array1<f32>) -> Array1<f32> {
-    let max = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let exp = x.mapv(|v| (v - max).exp());
-    let sum = exp.sum();
-    exp / sum
-}
-
-fn outer(a: &Array1<f32>, b: &Array1<f32>) -> Array2<f32> {
-    let m = a.len();
-    let n = b.len();
-    Array2::from_shape_fn((m, n), |(i, j)| a[i] * b[j])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn forward_output_shape() {
-        let net = FeedForwardNet::new(4, 8, 3, 0.01);
-        let x = Array1::from_vec(vec![0.1, 0.2, 0.3, 0.4]);
-        let (_, _, _, probs) = net.forward(&x);
-        assert_eq!(probs.len(), 3);
-        assert!((probs.sum() - 1.0).abs() < 1e-5);
+        let device: <InferenceBackend as Backend>::Device = Default::default();
+        let model = MlpConfig::new(4, 8, 3).init::<InferenceBackend>(&device);
+        let x = Tensor::<InferenceBackend, 2>::from_data(
+            TensorData::new(vec![0.1f32, 0.2, 0.3, 0.4], vec![1, 4]), &device);
+        let logits = model.forward(x);
+        assert_eq!(logits.dims(), [1, 3]);
     }
 
     #[test]
     fn train_step_reduces_loss() {
-        let mut net = FeedForwardNet::new(4, 16, 3, 0.1);
-        let x = Array1::from_vec(vec![1.0, 0.0, 0.0, 0.0]);
+        let mut net = FeedForwardNet::new(4, 16, 3, 0.01);
+        // Repeat the same sample in a batch of 8 for 50 steps.
+        let batch: Vec<(Vec<f32>, usize)> = vec![(vec![1.0f32, 0.0, 0.0, 0.0], 0); 8];
         let mut loss = f32::MAX;
-        for _ in 0..100 {
-            loss = net.train_step(&x, 0);
+        for _ in 0..50 {
+            loss = net.train_step(&batch);
         }
-        // After 100 steps on a fixed example, loss should drop
         assert!(loss < 1.5, "loss={loss}");
     }
 }

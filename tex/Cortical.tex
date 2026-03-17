@@ -28,24 +28,6 @@ Importantly, activity should contain a decay term, so that neurons don't remain 
 \end{equation}
 Where $f$ is a term that is to be derived in later sections.
 
-\subsection{The Activity Ring}
-It would be nice to model the activity of a neuron so that it gets harder to increase activity the larger the value of activity gets, in other words energy consumption per neuron behaves hyperbolically. To do this, we can define a saturating addition operation where
-\begin{equation}
-    x \oplus y = x + \frac{y}{|y|+1}
-\end{equation}
-The map $y \mapsto \frac{y}{|y|+1}$ sends $\mathbb{R} \to (-1, 1)$, so any single input contribution is bounded. For $y \ge 0$ this is simply $\frac{y}{y+1}$, which increases monotonically but saturates toward $1$. For negative $y$ (inhibitory inputs), the saturation is symmetric: $\frac{y}{|y|+1} = \frac{-|y|}{|y|+1} \to -1$.\\
-
-The additive inverse satisfies $x \oplus x^{-1} = 0$, giving
-\begin{equation}
-    x \ominus y = x - \frac{y}{|y|+1}
-\end{equation}
-
-We note that $\oplus$ is not associative. The left argument enters linearly while the right argument is saturated. This is the intended behavior: the existing activation state of a neuron is ``where it is,'' and new input is the saturated contribution. The canonical activation update becomes
-\begin{equation}\label{eq:update}
-    \alpha_h(t+1) = (1-\lambda)\alpha_h(t) + \frac{f_h(t)}{|f_h(t)|+1}
-\end{equation}
-where $f_h(t)$ is the total synaptic input (computed as an ordinary real sum) and the saturation is applied once at the neuron level. This is analogous to dendritic integration followed by a somatic transfer function.
-
 \subsection{Connection --- Incident and Terminal}
 Neurons are connected to one another biologically through axons and dendrites. There is a directional flow of information. So if two neurons are connected, one is the transmitter and one is the receiver. To notate this, if $h_i$ transmits to $h_j$, we can write
 \begin{equation}

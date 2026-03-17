@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Read(//Users/alfredricker/.claude/skills/google-ai-mode-skill/**)",
+      "Bash(python scripts/run.py search.py --query \"Burn crate Rust 0.16-0.20 neural network Module trait Tensor autodiff backend SGD Adam optimizer cross entropy loss training complete example 2025\" --save --debug)"
     ]
   }
 }

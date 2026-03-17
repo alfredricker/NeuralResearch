@@ -1,7 +1,7 @@
 use crate::activation::sigma;
 use crate::graph::{CsrGraph, GraphBuilder};
 use crate::learning::{HebbianRule, LearningRule};
-use super::GridBank;
+use super::{GridBank, RegionModule};
 
 /// CorticalRegion wires together three streams per the Cortical.tex equations:
 ///
@@ -69,8 +69,15 @@ impl CorticalRegion {
         }
     }
 
-    /// One tick: compute f_i for all model neurons and update activations.
-    pub fn tick(&mut self, feedforward: &[f32]) {
+    /// One time step: compute f_i for all model neurons and update activations.
+    ///
+    /// Implements equation 8 from Cortical.tex:
+    /// `f_i = f_i^F · g(f_i^W) + f_i^R - κ · σ(α_i) · E_M`
+    ///
+    /// Prefer calling this directly on a concrete `CorticalRegion`.
+    /// When composing regions in a [`Hierarchy`][crate::hierarchy::Hierarchy],
+    /// the [`RegionModule::tick`] trait method is used instead.
+    pub fn step(&mut self, feedforward: &[f32]) {
         assert_eq!(feedforward.len(), self.n_input);
 
         let n = self.n_model;
@@ -144,7 +151,7 @@ impl CorticalRegion {
         self.w_t.advance(displacement);
     }
 
-    /// Feed-out: current model neuron activations.
+    /// Current model neuron activations (the region's output port).
     pub fn output(&self) -> &[f32] {
         &self.m_activations
     }
@@ -156,6 +163,32 @@ impl CorticalRegion {
     }
 }
 
+// ─── RegionModule impl ───────────────────────────────────────────────────────
+
+/// `CorticalRegion` participates in hierarchies through the `RegionModule` trait.
+///
+/// The trait methods delegate to the inherent `step` / `output` / `learn_*`
+/// methods so that direct usage of the concrete type and trait-object usage
+/// behave identically.
+impl RegionModule for CorticalRegion {
+    #[inline] fn n_in(&self)  -> usize { self.n_input }
+    #[inline] fn n_out(&self) -> usize { self.n_model }
+
+    fn tick(&mut self, input: &[f32]) {
+        self.step(input);
+    }
+
+    fn output(&self) -> &[f32] {
+        // Calls the inherent `output` method — not recursive.
+        CorticalRegion::output(self)
+    }
+
+    fn learn(&mut self, input: &[f32]) {
+        self.learn_ff(input);
+        self.learn_rr();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,17 +197,29 @@ mod tests {
     fn cortical_region_runs() {
         let mut rng = rand::thread_rng();
         let mut region = CorticalRegion::new(
-            16,               // n_model
-            8,                // n_input
+            16,                // n_model
+            8,                 // n_input
             &[(5, 1), (7, 2)], // grid specs
-            0.1,              // recurrent connectivity
+            0.1,               // recurrent connectivity
             &mut rng,
         );
         let input = vec![0.5f32; 8];
-        region.tick(&input);
+        region.step(&input);
         region.learn_ff(&input);
         region.learn_rr();
-        // After one tick, some neurons should be non-zero
         assert!(region.m_activations.iter().any(|&a| a != 0.0));
+    }
+
+    #[test]
+    fn region_module_trait() {
+        let mut rng = rand::thread_rng();
+        let mut region: Box<dyn RegionModule + Send> = Box::new(
+            CorticalRegion::new(16, 8, &[(5, 1)], 0.1, &mut rng)
+        );
+        assert_eq!(region.n_in(), 8);
+        assert_eq!(region.n_out(), 16);
+        let input = vec![0.3f32; 8];
+        region.tick(&input);
+        assert_eq!(region.output().len(), 16);
     }
 }

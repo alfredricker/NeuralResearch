@@ -1,10 +1,11 @@
-/// FFN baseline on MNIST.
-/// Usage: cargo run --example mnist_ffn
+//! FFN baseline on MNIST (Burn backend).
+//! Usage: cargo run --example mnist_ffn
 use std::path::Path;
-use ndarray::Array1;
 use neural_core::data::MnistDataset;
 use neural_core::networks::FeedForwardNet;
 use neural_core::pipeline::{Model, run_pipeline};
+
+const BATCH_SIZE: usize = 64;
 
 struct FfnModel {
     net: FeedForwardNet,
@@ -12,31 +13,29 @@ struct FfnModel {
 
 impl FfnModel {
     fn new() -> Self {
-        Self { net: FeedForwardNet::new(784, 256, 10, 0.01) }
+        Self { net: FeedForwardNet::new(784, 256, 10, 0.001) }
     }
 }
 
 impl Model for FfnModel {
     fn train_epoch(&mut self, samples: &[(Vec<f32>, usize)]) -> f32 {
         let mut total_loss = 0.0;
-        for (pixels, label) in samples {
-            let x = Array1::from_vec(pixels.clone());
-            total_loss += self.net.train_step(&x, *label);
+        let mut n_batches = 0;
+        for chunk in samples.chunks(BATCH_SIZE) {
+            total_loss += self.net.train_step(chunk);
+            n_batches += 1;
         }
-        total_loss / samples.len() as f32
+        total_loss / n_batches as f32
     }
 
     fn evaluate(&mut self, samples: &[(Vec<f32>, usize)]) -> f32 {
-        let correct: usize = samples.iter()
-            .filter(|(pixels, label)| {
-                let x = Array1::from_vec(pixels.clone());
-                self.net.predict(&x) == *label
-            })
+        let correct = samples.iter()
+            .filter(|(pixels, label)| self.net.predict(pixels) == *label)
             .count();
         correct as f32 / samples.len() as f32
     }
 
-    fn name(&self) -> &str { "FFN" }
+    fn name(&self) -> &str { "FFN (Burn/Adam)" }
 }
 
 fn main() -> anyhow::Result<()> {
