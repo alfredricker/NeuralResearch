@@ -1,1 +1,0 @@
-This is where to define neural structures that perform a specific task. For example F_omega, or W neuron groups from the Cortical.tex paper. We can organize these modules into larger "Templates" that then wire together to a complete network.

@@ -1,8 +1,12 @@
 pub mod activation;
-pub mod module;
-pub mod graph;
 pub mod learning;
-pub mod networks;
-pub mod data;
-pub mod pipeline;
-pub mod network;
+pub mod graph;
+
+/// The subgraph wiring framework: ports, nodes, graph, builder, flatten.
+pub mod subgraph;
+
+/// Node implementations for the subgraph framework (FeedForward, GridModule, etc.).
+pub mod modules;
+
+/// Burn-based traditional deep learning: MLP, pipeline, MNIST data loading.
+pub mod burn;

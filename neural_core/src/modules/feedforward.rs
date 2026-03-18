@@ -1,6 +1,6 @@
 use crate::activation::sigma;
 use crate::learning::{HebbianRule, LearningRule};
-use crate::network::{Aggregation, Node, PortSpec, PortValues};
+use crate::subgraph::{Aggregation, Node, PortSpec, PortValues};
 
 /// A feedforward projection layer.
 ///
@@ -99,7 +99,6 @@ mod tests {
     fn output_nonzero_after_tick() {
         let mut ff = FeedForward::new(4, 8, 0.1);
         let inputs = PortValues::zeros_from(ff.input_ports());
-        // manually set input values
         let mut inputs = inputs;
         inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 0.5, -0.5, 0.2]);
         let mut outputs = PortValues::zeros_from(ff.output_ports());
@@ -127,7 +126,7 @@ mod tests {
 
     #[test]
     fn plugs_into_network_builder() {
-        use crate::network::NetworkBuilder;
+        use crate::subgraph::NetworkBuilder;
 
         let fg = NetworkBuilder::new("test")
             .add_node("a", FeedForward::new(4, 8, 0.01))

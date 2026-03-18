@@ -1,9 +1,7 @@
 //! FFN baseline on MNIST (Burn backend).
 //! Usage: cargo run --example mnist_ffn
 use std::path::Path;
-use neural_core::data::MnistDataset;
-use neural_core::networks::FeedForwardNet;
-use neural_core::pipeline::{Model, run_pipeline};
+use neural_core::burn::{MnistDataset, FeedForwardNet, Model, run_pipeline};
 
 const BATCH_SIZE: usize = 64;
 
