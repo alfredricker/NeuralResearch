@@ -63,6 +63,7 @@ pub struct FlatWire {
 /// `NetworkBuilder` as a composable template.
 pub struct FlatGraph {
     pub(super) nodes: Vec<Box<dyn Node + Send>>,
+    pub(super) node_names: Vec<String>,
     pub(super) feedforward_wires: Vec<FlatWire>,
     pub(super) recurrent_wires: Vec<FlatWire>,
     pub(super) exec_order: Vec<usize>,
@@ -96,22 +97,27 @@ impl FlatGraph {
             buf.zero_all();
         }
 
-        // 2. Find sensory nodes (no incoming feedforward wires) and copy
-        //    external into their input buffers — port by port.
-        let has_ff_input: Vec<bool> = {
-            let mut flags = vec![false; self.nodes.len()];
-            for w in &self.feedforward_wires {
-                flags[w.dst] = true;
-            }
-            flags
-        };
+        // 2. For every node, copy external data into any input port that has
+        //    no incoming feedforward wire.  This covers fully-sensory nodes
+        //    as well as non-sensory nodes with auxiliary ports (e.g. a
+        //    "target" label port on a supervised output layer).
+        let wired: std::collections::HashSet<(usize, &'static str)> = self
+            .feedforward_wires
+            .iter()
+            .map(|w| (w.dst, w.dst_port))
+            .collect();
 
-        for (i, flag) in has_ff_input.iter().enumerate() {
-            if !flag {
-                // Copy all matching ports from external into input_bufs[i].
-                for port in self.nodes[i].input_ports() {
-                    if let Some(src) = external.get(port.name) {
-                        if let Some(dst) = self.input_bufs[i].get_mut(port.name) {
+        for i in 0..self.nodes.len() {
+            let port_names: Vec<&'static str> = self.nodes[i]
+                .input_ports()
+                .iter()
+                .map(|s| s.name)
+                .collect();
+            for name in port_names {
+                if !wired.contains(&(i, name)) {
+                    if let Some(src) = external.get(name) {
+                        let src = src.to_vec();
+                        if let Some(dst) = self.input_bufs[i].get_mut(name) {
                             let len = dst.len().min(src.len());
                             dst[..len].copy_from_slice(&src[..len]);
                         }
@@ -121,6 +127,19 @@ impl FlatGraph {
         }
 
         self.tick_internal();
+    }
+
+    /// Return the output of a named port from the last node in topological
+    /// order.  Useful for reading classifier logits after a root-level `tick`.
+    pub fn read_last_output(&self, port: &str) -> Option<&[f32]> {
+        let idx = *self.exec_order.last()?;
+        self.output_bufs[idx].get(port)
+    }
+
+    /// Return the output of `port` from the node named `node_name`.
+    pub fn read_output(&self, node_name: &str, port: &str) -> Option<&[f32]> {
+        let idx = self.node_names.iter().position(|n| n == node_name)?;
+        self.output_bufs[idx].get(port)
     }
 
     /// Hebbian learning at every node (same order as tick).
@@ -357,6 +376,7 @@ mod tests {
 
         let mut fg = FlatGraph {
             nodes: vec![n0, n1],
+            node_names: vec!["n0".to_string(), "n1".to_string()],
             feedforward_wires: vec![FlatWire {
                 src: 0, src_port: "out",
                 dst: 1, dst_port: "in",

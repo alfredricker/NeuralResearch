@@ -361,6 +361,7 @@ pub fn flatten_and_build(def: SubgraphDef) -> Result<FlatGraph, BuildError> {
 
     Ok(FlatGraph {
         nodes: inter.nodes,
+        node_names: inter.node_names,
         feedforward_wires: ff_wires,
         recurrent_wires: rec_wires,
         exec_order,

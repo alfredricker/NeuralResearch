@@ -33,6 +33,26 @@ pub struct FeedForward {
 }
 
 impl FeedForward {
+    /// Create a new layer with weights drawn uniformly from `[-scale, scale]`.
+    pub fn new_random(n_in: usize, n_out: usize, scale: f32) -> Self {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let weights = (0..n_out * n_in)
+            .map(|_| rng.gen_range(-scale..scale))
+            .collect();
+        Self {
+            activations: vec![0.0; n_out],
+            weights,
+            n_in,
+            n_out,
+            lambda: 0.1,
+            eta: 0.005,
+            rule: HebbianRule::default(),
+            input_specs: vec![PortSpec { name: "in", dim: n_in, agg: Aggregation::Concat }],
+            output_specs: vec![PortSpec { name: "out", dim: n_out, agg: Aggregation::Concat }],
+        }
+    }
+
     /// Create a new layer with weights initialised to `weight_init`.
     pub fn new(n_in: usize, n_out: usize, weight_init: f32) -> Self {
         Self {
