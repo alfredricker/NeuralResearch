@@ -124,7 +124,7 @@ impl SubgraphModel {
     fn predict(&mut self, pixels: &[f32]) -> usize {
         self.ext.get_mut("enzyme").unwrap()[0] = 0.0; // no learning signal during eval
         self.load_pixels(pixels);
-        self.graph.tick(&self.ext);
+        self.graph.update(&self.ext);
         argmax(self.graph.read_output("classify", "pred").unwrap())
     }
 }
@@ -148,10 +148,10 @@ impl Model for SubgraphModel {
         for (n, (pixels, label)) in samples.iter().enumerate() {
             // ── Forward pass ──────────────────────────────────────────────────
             // enzyme=0 during tick: does not affect forward computation
-            // (WhereModule.tick() ignores the enzyme port).
+            // (WhereModule.update() ignores the enzyme port).
             self.ext.get_mut("enzyme").unwrap()[0] = 0.0;
             self.load_pixels(pixels);
-            self.graph.tick(&self.ext);
+            self.graph.update(&self.ext);
 
             // ── Supervised enzyme ─────────────────────────────────────────────
             // Margin signal: positive → correct class leads → reinforce.

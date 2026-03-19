@@ -398,7 +398,7 @@ mod tests {
     impl Node for Echo {
         fn input_ports(&self)  -> &[PortSpec] { &self.ins  }
         fn output_ports(&self) -> &[PortSpec] { &self.outs }
-        fn tick(&mut self, inp: &PortValues, out: &mut PortValues) {
+        fn update(&mut self, inp: &PortValues, out: &mut PortValues) {
             let v = inp.get("in").unwrap().to_vec();
             out.get_mut("out").unwrap().copy_from_slice(&v);
         }
@@ -421,7 +421,7 @@ mod tests {
 
         let mut ext = PortValues::zeros_from(&[PortSpec { name: "in", dim: 2, agg: Aggregation::Concat }]);
         ext.get_mut("in").unwrap().copy_from_slice(&[3.0, 7.0]);
-        fg.tick(&ext);
+        fg.update(&ext);
 
         assert_eq!(fg.output_bufs[fg.exec_order[1]].get("out").unwrap(), &[3.0f32, 7.0]);
     }
@@ -503,7 +503,7 @@ mod tests {
         inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 2.0, 3.0, 4.0]);
 
         let node: &mut dyn Node = &mut fg;
-        node.tick(&inputs, &mut outputs);
+        node.update(&inputs, &mut outputs);
 
         assert_eq!(outputs.get("out").unwrap(), &[1.0f32, 2.0, 3.0, 4.0]);
     }
@@ -524,7 +524,7 @@ mod tests {
         inputs.get_mut("data").unwrap().copy_from_slice(&[9.0, 8.0, 7.0]);
 
         let node: &mut dyn Node = &mut fg;
-        node.tick(&inputs, &mut outputs);
+        node.update(&inputs, &mut outputs);
 
         assert_eq!(outputs.get("result").unwrap(), &[9.0f32, 8.0, 7.0]);
     }
@@ -548,7 +548,7 @@ mod tests {
         impl Node for BigIn {
             fn input_ports(&self)  -> &[PortSpec] { &self.ins  }
             fn output_ports(&self) -> &[PortSpec] { &self.outs }
-            fn tick(&mut self, _: &PortValues, _: &mut PortValues) {}
+            fn update(&mut self, _: &PortValues, _: &mut PortValues) {}
             fn learn(&mut self, _: &PortValues) {}
         }
         BigIn {

@@ -9,3 +9,8 @@ pub use feedforward::FeedForward;
 pub use supervised::SupervisedLayer;
 pub use where_module::WhereModule;
 pub use classify::ClassifyModule;
+
+
+pub trait Module {
+    
+}

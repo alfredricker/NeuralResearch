@@ -47,7 +47,7 @@ impl Node for ClassifyModule {
         &self.output_specs
     }
 
-    fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+    fn update(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
         let votes = inputs.get("votes").expect("ClassifyModule: missing 'votes' port");
 
         // L1-normalize positive votes → pred (treats negative votes as 0).
@@ -90,7 +90,7 @@ mod tests {
         inputs.get_mut("votes").unwrap().copy_from_slice(&[2.0, 1.0, 0.0, 3.0]);
         let mut outputs = PortValues::zeros_from(cm.output_ports());
 
-        cm.tick(&inputs, &mut outputs);
+        cm.update(&inputs, &mut outputs);
 
         let pred = outputs.get("pred").unwrap();
         let sum: f32 = pred.iter().sum();
@@ -105,7 +105,7 @@ mod tests {
         inputs.get_mut("votes").unwrap().copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
         let mut outputs = PortValues::zeros_from(cm.output_ports());
 
-        cm.tick(&inputs, &mut outputs);
+        cm.update(&inputs, &mut outputs);
 
         let enzyme = outputs.get("enzyme").unwrap()[0];
         assert!((enzyme - 0.75).abs() < 1e-5);
@@ -119,7 +119,7 @@ mod tests {
         inputs.get_mut("votes").unwrap().copy_from_slice(&[100.0, 0.0, 0.0, 0.0]);
         let mut outputs = PortValues::zeros_from(cm.output_ports());
 
-        cm.tick(&inputs, &mut outputs);
+        cm.update(&inputs, &mut outputs);
 
         let enzyme = outputs.get("enzyme").unwrap()[0];
         assert!(enzyme < 0.01);
@@ -131,7 +131,7 @@ mod tests {
         let inputs = PortValues::zeros_from(cm.input_ports());
         let mut outputs = PortValues::zeros_from(cm.output_ports());
 
-        cm.tick(&inputs, &mut outputs);
+        cm.update(&inputs, &mut outputs);
 
         let pred = outputs.get("pred").unwrap();
         assert!(pred.iter().all(|&p| (p - 0.2).abs() < 1e-5));

@@ -85,7 +85,7 @@ impl Node for WhereModule {
         &self.output_specs
     }
 
-    fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+    fn update(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
         let input = inputs.get("in").expect("WhereModule: missing 'in' port");
 
         // 1. Linear projection: pre[i] = Σ_j w[i,j] · σ(in[j])
@@ -147,7 +147,7 @@ mod tests {
         inputs.get_mut("enzyme").unwrap()[0] = 0.8;
         let mut outputs = PortValues::zeros_from(wm.output_ports());
 
-        wm.tick(&inputs, &mut outputs);
+        wm.update(&inputs, &mut outputs);
 
         let gate = outputs.get("gate").unwrap();
         assert_eq!(gate.len(), 4);
@@ -168,7 +168,7 @@ mod tests {
         inputs.get_mut("enzyme").unwrap()[0] = 1.0;
         let mut outputs = PortValues::zeros_from(wm.output_ports());
 
-        wm.tick(&inputs, &mut outputs);
+        wm.update(&inputs, &mut outputs);
         wm.learn(&inputs);
 
         assert_ne!(wm.weights, before);
@@ -182,7 +182,7 @@ mod tests {
         inputs.get_mut("enzyme").unwrap()[0] = 0.0; // enzyme=0 → no learning
         let mut outputs = PortValues::zeros_from(wm.output_ports());
 
-        wm.tick(&inputs, &mut outputs);
+        wm.update(&inputs, &mut outputs);
         let before = wm.weights.clone();
         wm.learn(&inputs);
 

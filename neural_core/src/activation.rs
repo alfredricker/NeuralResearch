@@ -1,3 +1,27 @@
+pub enum Activation {
+    Sigma,
+    SigmaPrime,
+    Relu,
+    ReluPrime,
+    Sigmoid,
+    Softplus,
+    Decay,
+}
+
+impl Activation {
+    pub fn apply(&self, x: f32) -> f32 {
+        match self {
+            Activation::Sigma => sigma(x),
+            Activation::SigmaPrime => sigma_prime(x),
+            Activation::Relu => relu(x),
+            Activation::ReluPrime => relu_prime(x),
+            Activation::Sigmoid => sigmoid(x),
+            Activation::Softplus => softplus(x),
+            Activation::Decay => decay(x),
+        }
+    }
+}
+
 /// Smooth bounded activation: σ(x) = x / (|x| + 1)
 /// Range: (-1, 1), differentiable everywhere, σ(0) = 0
 #[inline]
@@ -32,6 +56,11 @@ pub fn softplus(x: f32) -> f32 {
 #[inline]
 pub fn decay(w: f32, mu: f32) -> f32 {
     w * (1.0 - mu)
+}
+
+#[inline]
+pub fn sigmoid(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
 }
 
 #[cfg(test)]

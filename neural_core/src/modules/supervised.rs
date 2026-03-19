@@ -72,7 +72,7 @@ impl Node for SupervisedLayer {
     fn input_ports(&self)  -> &[PortSpec] { &self.input_specs  }
     fn output_ports(&self) -> &[PortSpec] { &self.output_specs }
 
-    fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+    fn update(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
         let input = inputs.get("in").expect("SupervisedLayer: missing 'in' port");
         for i in 0..self.n_classes {
             let net: f32 = (0..self.n_hidden)
@@ -114,7 +114,7 @@ mod tests {
         inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 0.5, -0.5, 0.2]);
         let mut outputs = PortValues::zeros_from(layer.output_ports());
 
-        layer.tick(&inputs, &mut outputs);
+        layer.update(&inputs, &mut outputs);
 
         let out = outputs.get("out").unwrap();
         assert_eq!(out.len(), 3);
@@ -130,7 +130,7 @@ mod tests {
         inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
         inputs.get_mut("target").unwrap().copy_from_slice(&[1.0, 0.0, 0.0]);
         let mut outputs = PortValues::zeros_from(layer.output_ports());
-        layer.tick(&inputs, &mut outputs);
+        layer.update(&inputs, &mut outputs);
         layer.learn(&inputs);
 
         assert_ne!(layer.weights, before);
@@ -145,7 +145,7 @@ mod tests {
         inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
         // target stays all-zero
         let mut outputs = PortValues::zeros_from(layer.output_ports());
-        layer.tick(&inputs, &mut outputs);
+        layer.update(&inputs, &mut outputs);
         layer.learn(&inputs);
 
         assert_eq!(layer.weights, before);

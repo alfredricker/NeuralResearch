@@ -91,7 +91,7 @@ impl FlatGraph {
     ///
     /// `external` is applied to nodes that have no feedforward inputs
     /// (sensory nodes).  Its ports must match the sensory node's input ports.
-    pub fn tick(&mut self, external: &PortValues) {
+    pub fn update(&mut self, external: &PortValues) {
         // 1. Zero all input buffers.
         for buf in &mut self.input_bufs {
             buf.zero_all();
@@ -212,7 +212,7 @@ impl FlatGraph {
                 &mut self.output_bufs[i],
                 PortValues::zeros_from(self.nodes[i].output_ports()),
             );
-            self.nodes[i].tick(&self.input_bufs[i], &mut out);
+            self.nodes[i].update(&self.input_bufs[i], &mut out);
             self.output_bufs[i] = out;
 
             // Fan-out: write output into downstream input_bufs.
@@ -260,7 +260,7 @@ impl Node for FlatGraph {
         &self.exposed_output_specs
     }
 
-    fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+    fn update(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
         // Zero all internal input buffers.
         for buf in &mut self.input_bufs {
             buf.zero_all();
@@ -383,7 +383,7 @@ mod tests {
     impl Node for PassThrough {
         fn input_ports(&self)  -> &[PortSpec] { &self.ins  }
         fn output_ports(&self) -> &[PortSpec] { &self.outs }
-        fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+        fn update(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
             let src = inputs.get("in").unwrap().to_vec();
             outputs.get_mut("out").unwrap().copy_from_slice(&src);
         }
@@ -426,7 +426,7 @@ mod tests {
         ]);
         ext.get_mut("in").unwrap().copy_from_slice(&[1.0, 2.0, 3.0]);
 
-        fg.tick(&ext);
+        fg.update(&ext);
 
         // node 1's input should contain [1,2,3] forwarded from node 0's output.
         assert_eq!(fg.input_bufs[1].get("in").unwrap(), &[1.0f32, 2.0, 3.0]);

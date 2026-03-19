@@ -82,7 +82,7 @@ impl Node for FeedForward {
         &self.output_specs
     }
 
-    fn tick(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
+    fn update(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
         let input = inputs.get("in").expect("FeedForward: missing 'in' port");
 
         for i in 0..self.n_out {
@@ -123,7 +123,7 @@ mod tests {
         inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 0.5, -0.5, 0.2]);
         let mut outputs = PortValues::zeros_from(ff.output_ports());
 
-        ff.tick(&inputs, &mut outputs);
+        ff.update(&inputs, &mut outputs);
 
         let out = outputs.get("out").unwrap();
         assert_eq!(out.len(), 8);
@@ -138,7 +138,7 @@ mod tests {
         let mut inputs = PortValues::zeros_from(ff.input_ports());
         inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
         let mut outputs = PortValues::zeros_from(ff.output_ports());
-        ff.tick(&inputs, &mut outputs);
+        ff.update(&inputs, &mut outputs);
         ff.learn(&inputs);
 
         assert_ne!(ff.weights, before);

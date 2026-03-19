@@ -145,7 +145,7 @@ mod tests {
     impl Node for Echo {
         fn input_ports(&self)  -> &[PortSpec] { &self.ins  }
         fn output_ports(&self) -> &[PortSpec] { &self.outs }
-        fn tick(&mut self, inp: &PortValues, out: &mut PortValues) {
+        fn update(&mut self, inp: &PortValues, out: &mut PortValues) {
             // Sum "in" and "mod" if present, otherwise copy "in".
             let v: Vec<f32> = if let Some(m) = inp.get("mod") {
                 inp.get("in").unwrap().iter().zip(m.iter()).map(|(a, b)| a + b).collect()
@@ -216,7 +216,7 @@ mod tests {
 
         let mut ext = PortValues::zeros_from(&[PortSpec { name: "in", dim: 4, agg: Aggregation::Concat }]);
         ext.get_mut("in").unwrap().copy_from_slice(&[1.0, 2.0, 3.0, 4.0]);
-        parent.tick(&ext);
+        parent.update(&ext);
 
         // The last node in exec order should have received [1,2,3,4].
         let last = *parent.exec_order.last().unwrap();
@@ -252,7 +252,7 @@ mod tests {
 
         let mut ext = PortValues::zeros_from(&[PortSpec { name: "in", dim: 2, agg: Aggregation::Concat }]);
         ext.get_mut("in").unwrap().copy_from_slice(&[5.0, 6.0]);
-        root.tick(&ext);
+        root.update(&ext);
 
         let last = *root.exec_order.last().unwrap();
         assert_eq!(root.output_bufs[last].get("out").unwrap(), &[5.0f32, 6.0]);
@@ -275,7 +275,7 @@ mod tests {
         impl Node for Sink {
             fn input_ports(&self)  -> &[PortSpec] { &self.ins  }
             fn output_ports(&self) -> &[PortSpec] { &self.outs }
-            fn tick(&mut self, inp: &PortValues, out: &mut PortValues) {
+            fn update(&mut self, inp: &PortValues, out: &mut PortValues) {
                 let v = inp.get("mod").unwrap().to_vec();
                 out.get_mut("out").unwrap().copy_from_slice(&v);
             }
@@ -298,7 +298,7 @@ mod tests {
         // Provide external input to both templates (they are sensory nodes).
         let mut ext = PortValues::zeros_from(&[PortSpec { name: "in", dim: 3, agg: Aggregation::Concat }]);
         ext.get_mut("in").unwrap().copy_from_slice(&[1.0, 0.0, 0.0]);
-        net.tick(&ext);
+        net.update(&ext);
 
         // Sink should have summed contributions from a and b: [1,0,0] + [1,0,0] = [2,0,0].
         let sink_idx = net.exec_order.last().copied().unwrap();
