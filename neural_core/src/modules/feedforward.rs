@@ -1,5 +1,5 @@
 use crate::activation::sigma;
-use crate::learning::{HebbianRule, LearningRule};
+use crate::learning::{HebbianRule, Learn};
 use crate::subgraph::{Aggregation, Node, PortSpec, PortValues};
 
 /// A feedforward projection layer.
@@ -105,7 +105,7 @@ impl Node for FeedForward {
             for j in 0..self.n_in {
                 let w = self.weights[i * self.n_in + j];
                 self.weights[i * self.n_in + j] =
-                    self.rule.update_weight(w, input[j], self.activations[i], self.eta);
+                    self.rule.update_weight(w, input[j], self.activations[i], self.eta, i);
             }
         }
     }

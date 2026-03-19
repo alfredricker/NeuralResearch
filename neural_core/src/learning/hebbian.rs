@@ -1,4 +1,4 @@
-use super::LearningRule;
+use super::Learn;
 use crate::activation::sigma;
 
 /// Hebbian rule with weight decay:
@@ -14,9 +14,9 @@ impl Default for HebbianRule {
     }
 }
 
-impl LearningRule for HebbianRule {
+impl Learn for HebbianRule {
     #[inline]
-    fn update_weight(&self, w: f32, pre: f32, post: f32, eta: f32) -> f32 {
+    fn update_weight(&mut self, w: f32, pre: f32, post: f32, eta: f32, _neuron_idx: usize) -> f32 {
         w * (1.0 - self.mu) + eta * sigma(pre) * sigma(post)
     }
 }
@@ -27,16 +27,16 @@ mod tests {
 
     #[test]
     fn weight_grows_correlated() {
-        let rule = HebbianRule::default();
-        let w = rule.update_weight(0.0, 1.0, 1.0, 0.01);
+        let mut rule = HebbianRule::default();
+        let w = rule.update_weight(0.0, 1.0, 1.0, 0.01, 0);
         assert!(w > 0.0);
     }
 
     #[test]
     fn weight_decays_uncorrelated() {
-        let rule = HebbianRule::default();
+        let mut rule = HebbianRule::default();
         // Strong positive weight, no correlation
-        let w = rule.update_weight(1.0, 0.0, 0.0, 0.01);
+        let w = rule.update_weight(1.0, 0.0, 0.0, 0.01, 0);
         assert!(w < 1.0);
     }
 }

@@ -1,6 +1,8 @@
 pub mod activation;
 pub mod learning;
 pub mod graph;
+pub mod state;
+pub mod drive;
 
 /// The subgraph wiring framework: ports, nodes, graph, builder, flatten.
 pub mod subgraph;

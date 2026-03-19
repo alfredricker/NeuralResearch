@@ -5,7 +5,6 @@ pub enum Activation {
     ReluPrime,
     Sigmoid,
     Softplus,
-    Decay,
 }
 
 impl Activation {
@@ -17,7 +16,6 @@ impl Activation {
             Activation::ReluPrime => relu_prime(x),
             Activation::Sigmoid => sigmoid(x),
             Activation::Softplus => softplus(x),
-            Activation::Decay => decay(x),
         }
     }
 }
