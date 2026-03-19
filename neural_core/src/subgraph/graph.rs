@@ -143,9 +143,38 @@ impl FlatGraph {
     }
 
     /// Hebbian learning at every node (same order as tick).
-    /// For root-level use — reads from the `input_bufs` left by the previous
+    ///
+    /// Before calling each node's `learn`, any external ports that have **no**
+    /// incoming wire (feedforward or recurrent) are updated from `external`.
+    /// This lets the training loop inject signals (e.g. a supervised enzyme)
+    /// that are computed *after* the forward pass, without requiring a second
     /// `tick` call.
-    pub fn learn(&mut self, _external: &PortValues) {
+    pub fn learn(&mut self, external: &PortValues) {
+        // Ports that are fed by a wire must not be overridden.
+        let wired: std::collections::HashSet<(usize, &'static str)> = self
+            .feedforward_wires.iter().map(|w| (w.dst, w.dst_port))
+            .chain(self.recurrent_wires.iter().map(|w| (w.dst, w.dst_port)))
+            .collect();
+
+        for i in 0..self.nodes.len() {
+            let port_names: Vec<&'static str> = self.nodes[i]
+                .input_ports()
+                .iter()
+                .map(|s| s.name)
+                .collect();
+            for name in port_names {
+                if !wired.contains(&(i, name)) {
+                    if let Some(src) = external.get(name) {
+                        let src = src.to_vec();
+                        if let Some(dst) = self.input_bufs[i].get_mut(name) {
+                            let len = dst.len().min(src.len());
+                            dst[..len].copy_from_slice(&src[..len]);
+                        }
+                    }
+                }
+            }
+        }
+
         for &i in &self.exec_order.clone() {
             self.nodes[i].learn(&self.input_bufs[i]);
         }
