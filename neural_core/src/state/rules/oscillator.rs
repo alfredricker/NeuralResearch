@@ -1,5 +1,5 @@
 use std::f32::consts::TAU; // 2π
-use super::State;
+use crate::state::State;
 
 /// Cyclic phase oscillator update — pure function.
 ///

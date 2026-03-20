@@ -1,4 +1,4 @@
-use super::State;
+use crate::state::State;
 
 /// Leaky integrate-and-fire update — pure function.
 ///

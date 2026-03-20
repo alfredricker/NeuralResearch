@@ -1,4 +1,4 @@
-use super::{Bounded, State};
+use crate::state::{Bounded, State};
 
 /// Soft-threshold gate update — pure function.
 ///

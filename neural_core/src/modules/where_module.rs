@@ -1,5 +1,13 @@
 use crate::activation::sigma;
+use crate::drive::DriveRule;
+use crate::state::{Bounded, State};
 use crate::subgraph::{Aggregation, Node, PortSpec, PortValues};
+
+pub mod ports {
+    pub const IN:     &str = "in";
+    pub const ENZYME: &str = "enzyme";
+    pub const GATE:   &str = "gate";
+}
 
 /// Learned location/context module (W_M in the cortical column model).
 ///
@@ -8,10 +16,22 @@ use crate::subgraph::{Aggregation, Node, PortSpec, PortValues};
 /// function to produce a sparse class-vote vector.
 ///
 /// ```text
-/// in (n_in)  →  W (n_classes × n_in)  →  WTA  →  gate fn  →  gate (n_classes)
-///                                                         ↑
-///                                              enzyme (1) ─── scales Hebbian η
+/// in (n_in)  →  DriveRule  →  WTA  →  gate fn  →  gate (n_classes)
+///                                               ↑
+///                                    enzyme (1) ─── scales Hebbian η
 /// ```
+///
+/// ## Rule usage
+///
+/// - **`DriveRule`** — governs the linear projection (step 1). Default:
+///   `Activated(Sigma)`, the standard cortical drive.
+/// - **`UpdateRule`** — not used. WTA + smooth gating is a population
+///   operation across all neurons simultaneously; it cannot be expressed as
+///   a per-neuron scalar state transition.
+/// - **`LearnRule`** — not used. The three-factor Hebbian rule uses the
+///   pre-computed gate activation directly (not re-compressed through σ),
+///   and is scaled by the enzyme signal ν. Forcing it through `LearnRule`
+///   would either double-apply σ to the gate or require a Custom closure.
 ///
 /// **Learning (three-factor Hebbian):**
 /// ```text
@@ -20,35 +40,40 @@ use crate::subgraph::{Aggregation, Node, PortSpec, PortValues};
 /// ```
 /// where `ν = enzyme[0]` gates the effective learning rate.
 pub struct WhereModule {
-    pub n_in: usize,
+    pub n_in:      usize,
     pub n_classes: usize,
     /// Weight matrix, row-major, shape n_classes × n_in.
-    pub weights: Vec<f32>,
-    /// Gate outputs after WTA + gating fn (n_classes).
-    pub activations: Vec<f32>,
+    pub weights:   Vec<f32>,
+    /// Per-neuron state after WTA + smooth gate. Each is ContinuousBounded ∈ [0, 1).
+    /// Readout via `state.readout()` gives the gate activation.
+    pub states:    Vec<State>,
+    /// Drive rule for the linear projection step.
+    pub drive_rule: DriveRule,
     /// Base Hebbian learning rate η.
-    pub eta: f32,
+    pub eta:       f32,
     /// Weight decay coefficient μ.
-    pub mu: f32,
+    pub mu:        f32,
     /// WTA sparsity — top-k winners kept, rest zeroed.
-    pub k: usize,
+    pub k:         usize,
     /// Smooth gating threshold θ_W: gate[i] = pre[i]² / (pre[i]² + θ_W²).
-    pub theta_w: f32,
+    pub theta_w:   f32,
 
-    input_specs: Vec<PortSpec>,
+    input_specs:  Vec<PortSpec>,
     output_specs: Vec<PortSpec>,
 }
 
 impl WhereModule {
     /// Create a new `WhereModule` with Xavier-uniform weight init.
+    /// Uses `DriveRule::Activated(Sigma)` as the default projection.
     pub fn new(
-        n_in: usize,
+        n_in:     usize,
         n_classes: usize,
-        k: usize,
-        eta: f32,
-        mu: f32,
-        theta_w: f32,
+        k:        usize,
+        eta:      f32,
+        mu:       f32,
+        theta_w:  f32,
     ) -> Self {
+        use crate::activation::Activation;
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let scale = (1.0 / n_in as f32).sqrt();
@@ -60,40 +85,35 @@ impl WhereModule {
             n_in,
             n_classes,
             weights,
-            activations: vec![0.0; n_classes],
+            states: vec![State::ContinuousBounded(Bounded::new(0.0, 0.0, 1.0)); n_classes],
+            drive_rule: DriveRule::Activated(Activation::Sigma),
             eta,
             mu,
             k,
             theta_w,
             input_specs: vec![
-                PortSpec { name: "in",     dim: n_in,      agg: Aggregation::Concat },
-                PortSpec { name: "enzyme", dim: 1,         agg: Aggregation::Sum   },
+                PortSpec { name: ports::IN,     dim: n_in,      agg: Aggregation::Concat },
+                PortSpec { name: ports::ENZYME, dim: 1,         agg: Aggregation::Sum   },
             ],
             output_specs: vec![
-                PortSpec { name: "gate", dim: n_classes, agg: Aggregation::Concat },
+                PortSpec { name: ports::GATE, dim: n_classes, agg: Aggregation::Concat },
             ],
         }
     }
 }
 
 impl Node for WhereModule {
-    fn input_ports(&self) -> &[PortSpec] {
-        &self.input_specs
-    }
-
-    fn output_ports(&self) -> &[PortSpec] {
-        &self.output_specs
-    }
+    fn input_ports(&self)  -> &[PortSpec] { &self.input_specs }
+    fn output_ports(&self) -> &[PortSpec] { &self.output_specs }
 
     fn update(&mut self, inputs: &PortValues, outputs: &mut PortValues) {
-        let input = inputs.get("in").expect("WhereModule: missing 'in' port");
+        let input = inputs.get(ports::IN).expect("WhereModule: missing 'in' port");
 
-        // 1. Linear projection: pre[i] = Σ_j w[i,j] · σ(in[j])
+        // 1. Linear projection via DriveRule: pre[i] = Σ_j drive_rule(input, weights_row_i)
         let mut pre = vec![0.0f32; self.n_classes];
         for i in 0..self.n_classes {
-            pre[i] = (0..self.n_in)
-                .map(|j| self.weights[i * self.n_in + j] * sigma(input[j]))
-                .sum();
+            let row = &self.weights[i * self.n_in..(i + 1) * self.n_in];
+            pre[i] = self.drive_rule.compute(input, row);
         }
 
         // 2. WTA: zero all but top-k entries by magnitude.
@@ -108,26 +128,30 @@ impl Node for WhereModule {
         }
 
         // 3. Smooth gate: gate[i] = pre[i]² / (pre[i]² + θ_W²)
+        //    Store result in per-neuron State::ContinuousBounded.
         let tw2 = self.theta_w * self.theta_w;
         for i in 0..self.n_classes {
             let p2 = pre[i] * pre[i];
-            self.activations[i] = p2 / (p2 + tw2);
+            let gate = p2 / (p2 + tw2);
+            self.states[i] = State::ContinuousBounded(Bounded::new(gate, 0.0, 1.0));
         }
 
-        outputs
-            .get_mut("gate")
-            .expect("WhereModule: missing 'gate' port")
-            .copy_from_slice(&self.activations);
+        // Write gate readouts to output port.
+        let out = outputs.get_mut(ports::GATE).expect("WhereModule: missing 'gate' port");
+        for i in 0..self.n_classes {
+            out[i] = self.states[i].readout();
+        }
     }
 
     fn learn(&mut self, inputs: &PortValues) {
-        let input = inputs.get("in").expect("WhereModule: missing 'in' port");
-        let enzyme_buf = inputs.get("enzyme").expect("WhereModule: missing 'enzyme' port");
-        let nu = enzyme_buf[0]; // scalar enzyme — gates effective learning rate
+        let input     = inputs.get(ports::IN).expect("WhereModule: missing 'in' port");
+        let enzyme    = inputs.get(ports::ENZYME).expect("WhereModule: missing 'enzyme' port");
+        let nu        = enzyme[0]; // scalar enzyme — gates effective learning rate
 
         for i in 0..self.n_classes {
+            let gate_i = self.states[i].readout();
             for j in 0..self.n_in {
-                let delta = nu * self.eta * sigma(input[j]) * self.activations[i];
+                let delta = nu * self.eta * sigma(input[j]) * gate_i;
                 let w = &mut self.weights[i * self.n_in + j];
                 *w = (1.0 - self.mu) * *w + delta;
             }
@@ -143,15 +167,15 @@ mod tests {
     fn gate_output_in_range() {
         let mut wm = WhereModule::new(8, 4, 2, 0.01, 1e-4, 0.5);
         let mut inputs = PortValues::zeros_from(wm.input_ports());
-        inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, -0.5, 0.3, 0.8, -1.0, 0.2, 0.4, -0.3]);
-        inputs.get_mut("enzyme").unwrap()[0] = 0.8;
+        inputs.get_mut(ports::IN).unwrap()
+            .copy_from_slice(&[1.0, -0.5, 0.3, 0.8, -1.0, 0.2, 0.4, -0.3]);
+        inputs.get_mut(ports::ENZYME).unwrap()[0] = 0.8;
         let mut outputs = PortValues::zeros_from(wm.output_ports());
 
         wm.update(&inputs, &mut outputs);
 
-        let gate = outputs.get("gate").unwrap();
+        let gate = outputs.get(ports::GATE).unwrap();
         assert_eq!(gate.len(), 4);
-        // All gate values in [0, 1).
         assert!(gate.iter().all(|&g| g >= 0.0 && g < 1.0));
         // WTA: at most k=2 non-zero.
         let nonzero = gate.iter().filter(|&&g| g > 0.0).count();
@@ -164,8 +188,8 @@ mod tests {
         let before = wm.weights.clone();
 
         let mut inputs = PortValues::zeros_from(wm.input_ports());
-        inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 0.5, -0.5, 0.2]);
-        inputs.get_mut("enzyme").unwrap()[0] = 1.0;
+        inputs.get_mut(ports::IN).unwrap().copy_from_slice(&[1.0, 0.5, -0.5, 0.2]);
+        inputs.get_mut(ports::ENZYME).unwrap()[0] = 1.0;
         let mut outputs = PortValues::zeros_from(wm.output_ports());
 
         wm.update(&inputs, &mut outputs);
@@ -176,10 +200,10 @@ mod tests {
 
     #[test]
     fn zero_enzyme_freezes_weights() {
-        let mut wm = WhereModule::new(4, 3, 2, 0.1, 0.0, 0.5); // mu=0 so decay doesn't change
+        let mut wm = WhereModule::new(4, 3, 2, 0.1, 0.0, 0.5); // mu=0 so decay doesn't interfere
         let mut inputs = PortValues::zeros_from(wm.input_ports());
-        inputs.get_mut("in").unwrap().copy_from_slice(&[1.0, 0.5, -0.5, 0.2]);
-        inputs.get_mut("enzyme").unwrap()[0] = 0.0; // enzyme=0 → no learning
+        inputs.get_mut(ports::IN).unwrap().copy_from_slice(&[1.0, 0.5, -0.5, 0.2]);
+        inputs.get_mut(ports::ENZYME).unwrap()[0] = 0.0;
         let mut outputs = PortValues::zeros_from(wm.output_ports());
 
         wm.update(&inputs, &mut outputs);
@@ -187,5 +211,20 @@ mod tests {
         wm.learn(&inputs);
 
         assert_eq!(wm.weights, before);
+    }
+
+    #[test]
+    fn states_are_bounded_after_update() {
+        let mut wm = WhereModule::new(4, 4, 2, 0.01, 1e-4, 0.5);
+        let mut inputs = PortValues::zeros_from(wm.input_ports());
+        inputs.get_mut(ports::IN).unwrap().copy_from_slice(&[10.0, -10.0, 5.0, -5.0]);
+        let mut outputs = PortValues::zeros_from(wm.output_ports());
+
+        wm.update(&inputs, &mut outputs);
+
+        for state in &wm.states {
+            let v = state.readout();
+            assert!(v >= 0.0 && v < 1.0, "state readout {v} out of [0, 1)");
+        }
     }
 }

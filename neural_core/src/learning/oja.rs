@@ -39,7 +39,7 @@ mod tests {
         let mut w = 0.0f32;
         // Strong correlated signal — Oja should converge, not blow up.
         for _ in 0..1000 {
-            w = rule.update_weight(w, 1.0, 1.0, 0.1);
+            w = rule.update_weight(w, 1.0, 1.0, 0.1, 0);
         }
         assert!(w.is_finite());
         assert!(w.abs() <= 2.0);
@@ -48,7 +48,7 @@ mod tests {
     #[test]
     fn positive_correlation_grows_weight() {
         let mut rule = OjaRule::default();
-        let w = rule.update_weight(0.0, 1.0, 1.0, 0.01);
+        let w = rule.update_weight(0.0, 1.0, 1.0, 0.01, 0);
         assert!(w > 0.0);
     }
 
@@ -56,7 +56,7 @@ mod tests {
     fn normalisation_term_shrinks_oversized_weight() {
         let mut rule = OjaRule::default();
         // pre=0, post=1, w=1: correction = σ(1)·(σ(0) − σ(1)·1) = 0.5·(0 − 0.5) < 0
-        let w = rule.update_weight(1.0, 0.0, 1.0, 0.1);
+        let w = rule.update_weight(1.0, 0.0, 1.0, 0.1, 0);
         assert!(w < 1.0);
     }
 }

@@ -1,5 +1,5 @@
 use crate::activation::Activation;
-use super::{Bounded, State};
+use crate::state::{Bounded, State};
 
 /// Leaky integration update — pure function.
 ///
