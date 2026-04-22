@@ -1,3 +1,0 @@
-I am writing a Domain Specific Language (DSL) for building graphical neural networks that are capable of a diverse range of tasks. Within the framework, we will be able to efficiently compile CNNs, RNNs, transformers, Hopfield networks, and novel neuroscience inspired techniques for artificial learning such as the cortical column model and Hawkins' thousand brains theory of intelligence.
-
-The other part of this project is to develop computationally and energy efficient graphical networks capable of abstract learning and processing. These learning algorithms take a fundamentally different approach to learning than traditional machine learning methods, while both are supported to be compiled by the Subgraph Topology Network (STN) compiler.
