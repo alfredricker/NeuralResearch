@@ -1,4 +1,3 @@
 struct Synapse {
-    activity: i8,
-    psn: 
+    activity: i8, // 1 byte
 }
