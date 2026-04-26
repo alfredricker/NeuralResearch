@@ -1,1 +1,1 @@
-pub const BETA_DECAY: u8 = 5;
+pub const T_BETA: u16 = 500; // number of ticks elapse to subtract 1 from beta
