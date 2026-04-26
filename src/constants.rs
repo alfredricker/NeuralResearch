@@ -1,0 +1,1 @@
+pub const BETA_DECAY: u8 = 5;
