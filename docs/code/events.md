@@ -27,3 +27,7 @@ Have to redefine partitions when connectivity changes. It is an expensive comput
 
 ### Biological Partitioning
 You may also partition based on the biological structure, e.g. cortical columns, neural layers, or regions of the artificial brain.
+
+
+# Clocks
+You can run a global clock of a u64, while individual components can track time since last event through u16's.

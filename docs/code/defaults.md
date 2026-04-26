@@ -1,3 +1,5 @@
+## Default Behavoir
+```rust
 pub enum NeuronTypes {
     Pyramid5,
     Sensory1,
@@ -30,3 +32,8 @@ impl NeuronTypes {
         }
     }
 }
+```
+
+## Logic for Defaults
+Branch threshold - `u16`, can have it be the midpoint `2^15`
+Can set synaptic weights to midpoints `2^7`.

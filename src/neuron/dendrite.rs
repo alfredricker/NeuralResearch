@@ -1,13 +1,14 @@
 pub struct Dendrite {
     pub activity: u8,
-    pub last_event: u32,
+    pub last_event: u16,
     pub branch_constant: i8,
-    pub threshold: u8,
-    pub activity: u8,
+    pub threshold: u16,
+    pub activity: u16,
 }
 
 impl Dendrite {
-    pub fn new(activity: u8) -> Self {
+    pub fn new(activity: u16) -> Self {
+        let defaults: NeuronDefaults = NeuronTypes::Pyramid5.defaults();
         Self {
             activity: activity,
             last_event: 0

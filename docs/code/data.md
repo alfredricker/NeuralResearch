@@ -65,3 +65,6 @@ Neurons will have different memory requirements based on their type. As a first 
 | Simple | 4 | 32 | 20 | 12 + (4x6) + 128 + (20x8) | **~325 bytes** |
 | Interneuron | 6 | 50 | 40 | 12 + (6x6) + 300 + (40x8) | **~660 bytes** |
 | Pyramidal | 20 | 100 | 100 | 12 + (20x6) + 2000 + (100x8) | **~2.5Kb** |
+
+
+Perhaps neurons should keep track of statistics such as average number of incoming spikes to adjust thresholds.
