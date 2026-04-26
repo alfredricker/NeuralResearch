@@ -1,5 +1,18 @@
 pub struct Dendrite {
-    
+    pub activity: u8,
+    pub last_event: u32,
+    pub branch_constant: i8,
+    pub threshold: u8,
+    pub activity: u8,
+}
+
+impl Dendrite {
+    pub fn new(activity: u8) -> Self {
+        Self {
+            activity: activity,
+            last_event: 0
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
