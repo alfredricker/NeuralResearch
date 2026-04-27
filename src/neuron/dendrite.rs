@@ -1,3 +1,5 @@
+use crate::neuron::types::{NeuronDefaults, NeuronTypes};
+use core::default::Default;
 pub struct Dendrite {
     pub activity: u16,
     pub last_event: u16,
@@ -14,6 +16,12 @@ impl Dendrite {
             branch_constant: defaults.init_branch_constant,
             threshold: defaults.init_branch_threshold,
         }
+    }
+}
+
+impl Default for Dendrite {
+    fn default() -> Self {
+        Dendrite::new()
     }
 }
 

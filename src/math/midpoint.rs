@@ -1,3 +1,5 @@
+// Convienence function for taking the midpoint value of unsigned int types MIN MAX
+
 fn midpoint<T: MidPoint>() -> T {
     T::mid()
 }
