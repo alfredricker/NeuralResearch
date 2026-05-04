@@ -1,5 +1,5 @@
 use crate::neuron::dendrite::Dendrite;
-use crate::neuron::types::NeuronType;
+use crate::init::neuron::defaults::NeuronDefaults;
 
 pub struct Branch {
     branch_constant: i8,
@@ -10,11 +10,10 @@ pub struct Branch {
 }
 
 impl Branch {
-    pub fn new(neuron_type: NeuronType) -> Self {
-        let neuron_defaults = neuron_type.defaults();
+    pub fn new(defaults: &NeuronDefaults) -> Self {
         Self {
-            branch_constant: neuron_defaults.init_branch_constant,
-            threshold: neuron_defaults.init_branch_threshold,
+            branch_constant: defaults.init_branch_constant,
+            threshold: defaults.init_branch_threshold,
             activity: 0,
             last_event: 0,
             dendrites: Vec::new(),
