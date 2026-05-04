@@ -28,7 +28,7 @@ impl Synapse {
     pub fn update_weight(&mut self, spike: &Spike) {
         self.decay_alpha(&spike.global_tick); 
         // only update if alpha > h_alpha
-        if (self.alpha <= H_ALPHA) { return };
+        if self.alpha <= H_ALPHA { return };
 
         let burst_term: i16 = (spike.beta as i16) - H_BETA; // don't have to worry about overflow -- max(beta) is 2^8 - 1
         // don't have to worry about overflow on the burst_term*self.alpha either. max is (2^6 - 5)*(2^8 - 1)

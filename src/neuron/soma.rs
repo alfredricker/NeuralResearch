@@ -13,6 +13,6 @@ impl Soma {
         let decrements = (self.last_event / T_BETA).min(15) as u8;
         self.beta = self.beta.saturating_sub(decrements).saturating_add(1);
         // prevent exploding weight updates and i16 overflows in delta_weight -- cap at 2^6 - 1
-        if (self.beta > 63) { self.beta = 63 }; // there might be a more efficient way to do this in this func
+        if self.beta > 63 { self.beta = 63 }; // there might be a more efficient way to do this in this func
     }
 }

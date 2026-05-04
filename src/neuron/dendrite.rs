@@ -1,20 +1,26 @@
-use crate::neuron::types::{NeuronDefaults, NeuronTypes};
+use crate::neuron::types::{NeuronType};
+use crate::init::neuron::defaults::NeuronDefaults;
 use core::default::Default;
+use crate::neuron::synapse::Synapse;
+
+// dendrite owns the synapses
 pub struct Dendrite {
     pub activity: u16,
     pub last_event: u16,
     pub branch_constant: i8,
     pub threshold: u16,
+    pub synapses: Vec<Synapse>,
 }
 
 impl Dendrite {
     pub fn new() -> Self {
-        let defaults: NeuronDefaults = NeuronTypes::Pyramid5.defaults();
+        let defaults: NeuronDefaults = NeuronType::Pyramid5.defaults();
         Self {
             activity: 0,
             last_event: 0,
             branch_constant: defaults.init_branch_constant,
             threshold: defaults.init_branch_threshold,
+            synapses: Vec::new(),
         }
     }
 }

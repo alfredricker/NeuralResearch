@@ -1,0 +1,3 @@
+How do larger structures "own" the components? A synapse must be mutated by both the presynaptic and postsynaptic neuron.
+
+The Dendritic branches can own the synapse, while the presynaptic neuron holds `DendriteAddr` indices. This is more efficient because the presynaptic neuron only mutates the synapse on spike events, while the postsynaptic neuron updates it for BaP. On second thought they probably reference it about evenly, it's a matter of preference.

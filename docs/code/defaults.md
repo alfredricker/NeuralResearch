@@ -1,6 +1,6 @@
 ## Default Behavoir
 ```rust
-pub enum NeuronTypes {
+pub enum NeuronType {
     Pyramid5,
     Sensory1,
     Lay1,
@@ -23,7 +23,7 @@ impl NeuronDefaults {
     }
 }
 
-impl NeuronTypes {
+impl NeuronType {
     pub fn defaults(&self) -> NeuronDefaults {
         match self {
             Self::Lay1 => { NeuronDefaults::new(20, 5, 60) },

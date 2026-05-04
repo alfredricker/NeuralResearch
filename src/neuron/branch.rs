@@ -1,6 +1,23 @@
-struct Branch {
+use crate::neuron::dendrite::Dendrite;
+use crate::neuron::types::NeuronType;
+
+pub struct Branch {
     branch_constant: i8,
-    threshold: u8,
+    threshold: u16,
     activity: u8,
     last_event: u32,
+    dendrites: Vec<Dendrite>,
+}
+
+impl Branch {
+    pub fn new(neuron_type: NeuronType) -> Self {
+        let neuron_defaults = neuron_type.defaults();
+        Self {
+            branch_constant: neuron_defaults.init_branch_constant,
+            threshold: neuron_defaults.init_branch_threshold,
+            activity: 0,
+            last_event: 0,
+            dendrites: Vec::new(),
+        }
+    }
 }
