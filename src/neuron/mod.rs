@@ -1,4 +1,3 @@
-pub mod branch;
 pub mod dendrite;
 pub mod neuron;
 pub mod soma;

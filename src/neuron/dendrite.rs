@@ -1,7 +1,7 @@
-use crate::init::neuron::defaults::NeuronDefaults;
 use crate::neuron::synapse::Synapse;
 
-// dendrite owns the synapses
+// dendrite owns the synapses. This is essentially a dendritic branch.
+// it has its own spiking dynamics, meaning a single neuron acts as a two layer NN
 pub struct Dendrite {
     pub activity: u16,
     pub last_event: u16,
@@ -11,12 +11,12 @@ pub struct Dendrite {
 }
 
 impl Dendrite {
-    pub fn new(defaults: &NeuronDefaults) -> Self {
+    pub fn new(threshold: u16, branch_constant: i8) -> Self {
         Self {
             activity: 0,
             last_event: 0,
-            branch_constant: defaults.init_branch_constant,
-            threshold: defaults.init_branch_threshold,
+            branch_constant,
+            threshold,
             synapses: Vec::new(),
         }
     }
@@ -25,11 +25,12 @@ impl Dendrite {
 #[derive(Copy, Clone)]
 pub struct DendriteAddr(u32);
 
+// Layout: [neuron_id: 20 bits | dendrite_id: 12 bits]
+// Max: 1,048,576 neurons × 4,096 dendrites each
 impl DendriteAddr {
-    pub fn new(neuron_id: u32, branch_id: u8, dendrite_id: u8) -> Self {
-        DendriteAddr((neuron_id << 12) | ((branch_id as u32) << 8) | (dendrite_id as u32))
+    pub fn new(neuron_id: u32, dendrite_id: u16) -> Self {
+        DendriteAddr((neuron_id << 12) | (dendrite_id as u32 & 0xFFF))
     }
     pub fn neuron_id(self) -> usize { (self.0 >> 12) as usize }
-    pub fn branch_id(self) -> usize { ((self.0 >> 8) & 0xF) as usize }
-    pub fn dendrite_id(self) -> usize { (self.0 & 0xFF) as usize }
+    pub fn dendrite_id(self) -> usize { (self.0 & 0xFFF) as usize }
 }

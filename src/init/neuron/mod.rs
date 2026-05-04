@@ -1,1 +1,1 @@
-pub mod defaults;
+pub mod config;

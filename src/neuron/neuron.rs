@@ -1,12 +1,10 @@
-use crate::neuron::dendrite::{DendriteAddr};
-use crate::neuron::branch::{Branch};
+use crate::neuron::dendrite::{Dendrite, DendriteAddr};
 use crate::neuron::soma::Soma;
 
-// branches own the dendrites, dendrites own the synapses
 struct Neuron {
     learning_rate: i16, // eta, minimum is constants::MSLR. Won't go negative but I don't want to cast
     soma: Soma,
-    branches: Vec<Branch>,
+    dendrites: Vec<Dendrite>,
     efferent: Vec<DendriteAddr>,
 }
 
