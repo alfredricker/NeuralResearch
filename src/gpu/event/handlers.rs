@@ -1,19 +1,18 @@
-use crate::gpu::event::{Event, SOMATIC_SPIKE, FORWARD_AP, push_event};
-use crate::math::decay::shift_decay_u8;
+use crate::gpu::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, push_event};
 use std::sync::atomic::AtomicU32;
-use crate::constants::{T_BETA, H_ALPHA, ALPHA_DECAY};
-use crate::gpu::neuron::synapse::update_weight;
+use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST};
+use crate::gpu::neuron::synapse::{update_weight, update_synapse_alpha};
+use crate::gpu::neuron::dendrite::update_dendrite_activity;
 
 // Somatic spike: update beta, BaP weight updates across all owned synapses, emit ForwardAP.
 // Alpha decay on each synapse is lazy — computed here from synapse_last_events.
+// synapse slices must already be scoped to this neuron via neuron_synapse_range.
 pub fn handle_somatic_spike(
     neuron_idx: usize,
     timestamp: u16,
     beta: &mut u8,
     soma_last_event: &mut u16,
     soma_lr: &i16,
-    dendrite_offsets: &[u32],
-    synapse_offsets: &[u32],
     synapse_weights: &mut [i8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
@@ -28,45 +27,31 @@ pub fn handle_somatic_spike(
     *soma_last_event = timestamp;
 
     let lr = *soma_lr;
-    let d_start = dendrite_offsets[neuron_idx] as usize;
-    let d_end   = dendrite_offsets[neuron_idx + 1] as usize;
 
-    for d_idx in d_start..d_end {
-        let s_start = synapse_offsets[d_idx] as usize;
-        let s_end   = synapse_offsets[d_idx + 1] as usize;
-
-        for s_idx in s_start..s_end {
-            update_weight(
-                timestamp,
-                beta,
-                lr,
-                s_idx,
-                synapse_alphas,
-                synapse_last_events,
-                synapse_weights
-            );
-        }
+    for s_idx in 0..synapse_weights.len() {
+        update_weight(timestamp, beta, lr, s_idx, synapse_alphas, synapse_last_events, synapse_weights);
     }
 
-    push_event(event_buf, event_tail, event_capacity, 
-        Event { event_type: FORWARD_AP, source: neuron_idx as u32, timestamp });
+    unsafe {
+        push_event(event_buf, event_tail, event_capacity,
+            Event { event_type: FORWARD_AP, source: neuron_idx as u32, timestamp });
+    }
 }
 
 
 // Dendritic spike: propagate to soma scaled by branch_constant (proximal vs distal),
 // boost alpha on synapses active at spike time, emit SOMATIC_SPIKE if threshold crossed.
 //
-// branch_constant > 0: proximal — contribution scales with the constant
-// branch_constant <= 0: distal — attenuated to 1, local computation without strongly driving soma
+// branch_constant > 0: proximal — scales directly onto soma potential
+// branch_constant <= 0: distal — attenuated to 1, strong local NMDA-like reinforcement
+// synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
 pub fn handle_dendritic_spike(
-    dendrite_idx: usize,
     neuron_idx: usize,
     timestamp: u16,
     dendrite_constant: &i8,
     dendrite_last_event: &mut u16,
     soma_potential: &mut i8,
     soma_threshold: &i8,
-    synapse_offsets: &[u32],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
     event_buf: *mut Event,
@@ -77,27 +62,53 @@ pub fn handle_dendritic_spike(
 
     let branch_constant = *dendrite_constant;
     let soma_delta: i8 = branch_constant.max(1);
-    // @QUESTION : how can the apical dendrite produce a burst pattern?
     *soma_potential = soma_potential.saturating_add(soma_delta);
 
-    // NMDA-like: synapses that were recently active get their alpha boosted,
-    // reinforcing the inputs that caused this dendritic spike
-    let s_start = synapse_offsets[dendrite_idx] as usize;
-    let s_end   = synapse_offsets[dendrite_idx + 1] as usize;
-
-    for s_idx in s_start..s_end {
-        let s_elapsed = timestamp.wrapping_sub(synapse_last_events[s_idx]);
-        let alpha = shift_decay_u8(synapse_alphas[s_idx], s_elapsed, ALPHA_DECAY);
-        synapse_alphas[s_idx] = alpha;
-        synapse_last_events[s_idx] = timestamp;
-
+    for s_idx in 0..synapse_alphas.len() {
+        let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
         if alpha > H_ALPHA {
             synapse_alphas[s_idx] = alpha.saturating_add(branch_constant.unsigned_abs());
         }
     }
 
     if *soma_potential >= *soma_threshold {
-        push_event(event_buf, event_tail, event_capacity, 
-            Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
+        unsafe {
+            push_event(event_buf, event_tail, event_capacity,
+                Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
+        }
+    }
+}
+
+
+// Forward AP received at a synapse: boost alpha, update dendrite voltage, emit DENDRITIC_SPIKE if threshold crossed.
+// synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
+pub fn handle_forward_ap(
+    s_idx: usize,
+    dendrite_idx: usize,
+    timestamp: u16,
+    synapse_xs: &[u8],
+    synapse_alphas: &mut [u8],
+    synapse_last_events: &mut [u16],
+    synapse_weights: &[i8],
+    dendrite_activity: &mut u16,
+    dendrite_threshold: &u16,
+    event_buf: *mut Event,
+    event_tail: &AtomicU32,
+    event_capacity: u32,
+) {
+    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
+    synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
+
+    let delta = update_dendrite_activity(
+        s_idx, timestamp,
+        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
+    );
+    *dendrite_activity = dendrite_activity.saturating_add_signed(delta);
+
+    if *dendrite_activity >= *dendrite_threshold {
+        unsafe {
+            push_event(event_buf, event_tail, event_capacity,
+                Event { event_type: DENDRITIC_SPIKE, source: dendrite_idx as u32, timestamp });
+        }
     }
 }

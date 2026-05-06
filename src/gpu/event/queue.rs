@@ -1,7 +1,5 @@
-use crate::constants::{T_BETA, H_ALPHA, H_BETA, ALPHA_DECAY, MSLR};
-use crate::math::decay::shift_decay_u8;
-use std::sync::atomic::{AtomicU32, Ordering};                                                      
-                                                                                                    
+use std::sync::atomic::{AtomicU32, Ordering};
+
 pub struct EventQueue {
     buf: Box<[Event]>,                                                                             
     tail: AtomicU32,
