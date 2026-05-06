@@ -1,6 +1,6 @@
 use crate::gpu::event::{Event, SOMATIC_SPIKE, FORWARD_AP, push_event};
 use crate::math::decay::shift_decay_u8;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 use crate::constants::{T_BETA, H_ALPHA, ALPHA_DECAY};
 use crate::gpu::neuron::synapse::update_weight;
 
@@ -9,8 +9,8 @@ use crate::gpu::neuron::synapse::update_weight;
 pub fn handle_somatic_spike(
     neuron_idx: usize,
     timestamp: u16,
-    beta: &mut u8, // the beta value for this neuron
-    soma_last_events: &mut [u16],
+    beta: &mut u8,
+    soma_last_event: &mut u16,
     soma_lr: &i16,
     dendrite_offsets: &[u32],
     synapse_offsets: &[u32],
@@ -21,14 +21,11 @@ pub fn handle_somatic_spike(
     event_tail: &AtomicU32,
     event_capacity: u32,
 ) {
-    let elapsed = timestamp.wrapping_sub(soma_last_events[neuron_idx]);
+    let elapsed = timestamp.wrapping_sub(*soma_last_event);
     let decrements = (elapsed / T_BETA).min(15) as u8;
-    let beta = beta
-        .saturating_sub(decrements)
-        .saturating_add(1)
-        .min(63);
-    *beta = beta;
-    soma_last_events[neuron_idx] = timestamp;
+    *beta = beta.saturating_sub(decrements).saturating_add(1).min(63);
+    let beta = *beta;
+    *soma_last_event = timestamp;
 
     let lr = *soma_lr;
     let d_start = dendrite_offsets[neuron_idx] as usize;
@@ -65,10 +62,10 @@ pub fn handle_dendritic_spike(
     dendrite_idx: usize,
     neuron_idx: usize,
     timestamp: u16,
-    dendrite_constants: &[i8],
-    dendrite_last_events: &mut [u16],
-    soma_potentials: &mut [i8],
-    soma_thresholds: &[i8],
+    dendrite_constant: &i8,
+    dendrite_last_event: &mut u16,
+    soma_potential: &mut i8,
+    soma_threshold: &i8,
     synapse_offsets: &[u32],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
@@ -76,11 +73,12 @@ pub fn handle_dendritic_spike(
     event_tail: &AtomicU32,
     event_capacity: u32,
 ) {
-    dendrite_last_events[dendrite_idx] = timestamp;
+    *dendrite_last_event = timestamp;
 
-    let branch_constant = dendrite_constants[dendrite_idx];
+    let branch_constant = *dendrite_constant;
     let soma_delta: i8 = branch_constant.max(1);
-    soma_potentials[neuron_idx] = soma_potentials[neuron_idx].saturating_add(soma_delta);
+    // @QUESTION : how can the apical dendrite produce a burst pattern?
+    *soma_potential = soma_potential.saturating_add(soma_delta);
 
     // NMDA-like: synapses that were recently active get their alpha boosted,
     // reinforcing the inputs that caused this dendritic spike
@@ -98,7 +96,7 @@ pub fn handle_dendritic_spike(
         }
     }
 
-    if soma_potentials[neuron_idx] >= soma_thresholds[neuron_idx] {
+    if *soma_potential >= *soma_threshold {
         push_event(event_buf, event_tail, event_capacity, 
             Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
     }
