@@ -14,8 +14,6 @@ struct Soma {
 ## Segmented Reduction
 A common operation in parallel programming is reducing each inner array of a multidimensional array, such as rows of a matrix.
 
-## 
-- BaP — do it inline. One thread walks that neuron's synapses. The work is local and bounded.      
-- ForwardAP — push sub-events, one SynapticInput per axon target. A single neuron might drive
-  hundreds of synapses; distributing those across threads is the actual parallelism gain.            
-- DendriticSpike → soma update is a single atomicAdd, inline is fine.
+
+## The Event Buffer
+Pass a device pointer and an atomic counter. Each thread claims a slot through atomicAdd, then writes directly. No ownership can cross thread boundaries.

@@ -15,39 +15,30 @@ impl EventQueue {
           .collect::<Vec<_>>()                                                                       
           .into_boxed_slice();                                                                     
       Self { buf, tail: AtomicU32::new(0), head: AtomicU32::new(0) }                                 
-    }          
-    
-    pub fn push(&self, event: Event) -> bool {                                                     
-        let idx = self.tail.fetch_add(1, Ordering::Relaxed);
-        let head = self.head.load(Ordering::Relaxed);                                              
-        if idx.wrapping_sub(head) >= self.buf.len() as u32 {
-            return false; // full                                                                  
-        }       
-        // Safety: fetch_add gives each caller a unique slot                                       
-        unsafe {                                                                                   
-            let slot = self.buf.as_ptr().add(idx as usize % self.buf.len()) as *mut Event;
-            slot.write(event);                                                                     
-        }       
-        true                                                                                       
-    }           
+    }       
 
     pub fn drain(&self) -> &[Event] {                                                              
         let head = self.head.load(Ordering::Relaxed) as usize;
         let tail = self.tail.load(Ordering::Relaxed) as usize;                                     
         &self.buf[head % self.buf.len()..tail % self.buf.len()]
-    }                                                                                              
+    }
+    
+    // returns the raw parts a kernel function needs to push events
+    pub fn producer_handle(&self) -> (*mut Event, &AtomicU32, u32) {
+        (
+            self.buf.as_ptr() as *mut Event,
+            &self.tail,
+            self.buf.len() as u32,
+        )
+    }
 }
-
-pub const SOMATIC_SPIKE: u8 = 0;
-pub const FORWARD_AP: u8 = 1;
-pub const DENDRITIC_SPIKE: u8 = 2;
-pub const SYNAPTIC_INPUT: u8 = 3;
 
 pub struct Event {
     pub event_type: u8,
     pub source: u32,    // neuron_idx for SOMATIC_SPIKE/FORWARD_AP, dendrite_idx for DENDRITIC_SPIKE
     pub timestamp: u16,
 }
+
 
 // Somatic spike: update beta, BaP weight updates across all owned synapses, emit ForwardAP.
 // Alpha decay on each synapse is lazy — computed here from synapse_last_events.
@@ -62,7 +53,9 @@ pub fn handle_somatic_spike(
     synapse_weights: &mut [i8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
-    queue: &EventQueue,
+    event_buf: *mut Event,
+    event_tail: &AtomicU32,
+    event_capacity: u32,
 ) {
     let elapsed = timestamp.wrapping_sub(soma_last_events[neuron_idx]);
     let decrements = (elapsed / T_BETA).min(15) as u8;
@@ -115,7 +108,9 @@ pub fn handle_dendritic_spike(
     synapse_offsets: &[u32],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
-    queue: &EventQueue,
+    event_buf: *mut Event,
+    event_tail: &AtomicU32,
+    event_capacity: u32,
 ) {
     dendrite_last_events[dendrite_idx] = timestamp;
 
