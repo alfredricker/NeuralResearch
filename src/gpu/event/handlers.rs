@@ -112,3 +112,34 @@ pub fn handle_forward_ap(
         }
     }
 }
+
+// Apical feedback event received at a synapse: boost alpha by axon_constant, apply
+// multiplicative somatic update, emit one SOMATIC_SPIKE per threshold crossing.                          
+pub fn handle_apical_fb(                                                                                  
+    s_idx: usize,                                                                                         
+    neuron_idx: usize,                                                                                    
+    timestamp: u16,
+    axon_constant: u8,                                                                                    
+    synapse_alphas: &mut [u8],
+    synapse_last_events: &mut [u16],
+    soma_potential: &mut i8,                                                                              
+    soma_threshold: i8,
+    event_buf: *mut Event,                                                                                
+    event_tail: &AtomicU32,
+    event_capacity: u32,
+) {                                                                                                       
+    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
+    let effective_alpha = alpha.saturating_add(axon_constant);                                            
+    let v_s = (*soma_potential).max(0) as i32;
+    let new_v = *soma_potential as i32 + effective_alpha as i32 * v_s;                                    
+                                                                    
+    let burst_count = new_v / soma_threshold as i32;                                                      
+    *soma_potential = (new_v % soma_threshold as i32) as i8;                                              
+                                                            
+    for _ in 0..burst_count {                                                                             
+        unsafe {                                                                                          
+            push_event(event_buf, event_tail, event_capacity,
+                Event { event_type: SOMATIC_SPIKE, value: 0, source: neuron_idx as u32, timestamp });     
+        }                                                                                            
+    }                                                                                                     
+}    
