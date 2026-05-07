@@ -100,7 +100,7 @@ pub fn handle_forward_ap(
     synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
 
     let delta = update_dendrite_activity(
-        s_idx, timestamp,
+        dendrite_idx, s_idx, timestamp,
         synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
     );
     *dendrite_activity = dendrite_activity.saturating_add_signed(delta);

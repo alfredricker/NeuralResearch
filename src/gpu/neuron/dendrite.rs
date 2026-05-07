@@ -39,5 +39,5 @@ pub fn update_dendrite_activity(
         gamma = gamma.saturating_add(shift_decay_u8(alpha_j, dx as u16, X_DECAY) as u16);
     }
 
-    w_i.saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
+    (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
 }
