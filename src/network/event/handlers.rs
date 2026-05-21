@@ -1,5 +1,4 @@
-use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, push_event};
-use std::sync::atomic::AtomicU32;
+use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, EventProducer};
 use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST};
 use crate::neuron::synapse::{update_weight, update_synapse_alpha};
 use crate::neuron::dendrite::update_dendrite_activity;
@@ -16,9 +15,7 @@ pub fn handle_somatic_spike(
     synapse_weights: &mut [i8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
-    event_buf: *mut Event,
-    event_tail: &AtomicU32,
-    event_capacity: u32,
+    producer: &EventProducer,
 ) {
     let elapsed = timestamp.wrapping_sub(*soma_last_event);
     let decrements = (elapsed / T_BETA).min(15) as u8;
@@ -32,10 +29,7 @@ pub fn handle_somatic_spike(
         update_weight(timestamp, beta, lr, s_idx, synapse_alphas, synapse_last_events, synapse_weights);
     }
 
-    unsafe {
-        push_event(event_buf, event_tail, event_capacity,
-            Event { event_type: FORWARD_AP, source: neuron_idx as u32, timestamp });
-    }
+    producer.push(Event { event_type: FORWARD_AP, source: neuron_idx as u32, timestamp });
 }
 
 
@@ -54,9 +48,7 @@ pub fn handle_dendritic_spike(
     soma_threshold: &i8,
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
-    event_buf: *mut Event,
-    event_tail: &AtomicU32,
-    event_capacity: u32,
+    producer: &EventProducer,
 ) {
     *dendrite_last_event = timestamp;
 
@@ -72,10 +64,8 @@ pub fn handle_dendritic_spike(
     }
 
     if *soma_potential >= *soma_threshold {
-        unsafe {
-            push_event(event_buf, event_tail, event_capacity,
-                Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
-        }
+        *soma_potential = 0;
+        producer.push(Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
     }
 }
 
@@ -92,25 +82,32 @@ pub fn handle_forward_ap(
     synapse_weights: &[i8],
     dendrite_activity: &mut u16,
     dendrite_threshold: &u16,
-    event_buf: *mut Event,
-    event_tail: &AtomicU32,
-    event_capacity: u32,
+    producer: &EventProducer,
 ) {
     let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
     synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
 
     let delta = update_dendrite_activity(
+<<<<<<< HEAD
         s_idx, timestamp,
         synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
+||||||| parent of 8d28356 (event loop touch ups)
+        dendrite_idx, s_idx, timestamp,
+        synapse_xs, synapse_alphas, 
+        synapse_weights, synapse_last_events,
+=======
+        s_idx, timestamp,
+        synapse_xs, synapse_alphas,
+        synapse_weights, synapse_last_events,
+>>>>>>> 8d28356 (event loop touch ups)
     );
     *dendrite_activity = dendrite_activity.saturating_add_signed(delta);
 
     if *dendrite_activity >= *dendrite_threshold {
-        unsafe {
-            push_event(event_buf, event_tail, event_capacity,
-                Event { event_type: DENDRITIC_SPIKE, source: dendrite_idx as u32, timestamp });
-        }
+        *dendrite_activity = 0;
+        producer.push(Event { event_type: DENDRITIC_SPIKE, source: dendrite_idx as u32, timestamp });
     }
+<<<<<<< HEAD
 }
 
 // Apical feedback event received at a synapse: boost alpha by axon_constant, apply
@@ -143,3 +140,8 @@ pub fn handle_apical_fb(
         }                                                                                            
     }                                                                                                     
 }    
+||||||| parent of 8d28356 (event loop touch ups)
+}
+=======
+}
+>>>>>>> 8d28356 (event loop touch ups)

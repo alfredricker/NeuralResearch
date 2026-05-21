@@ -17,7 +17,6 @@ struct Dendrites {
 /// for only x_j > x_i (synapses higher along the dendrite have more influence on the soma)
 /// this allows for ordered synaptic integration
 pub fn update_dendrite_activity(
-    dendrite_idx: usize,
     s_idx: usize, // which synapse triggered the update
     timestamp: u16,
     synapse_xs: &[u8],
@@ -39,5 +38,21 @@ pub fn update_dendrite_activity(
         gamma = gamma.saturating_add(shift_decay_u8(alpha_j, dx as u16, X_DECAY) as u16);
     }
 
+<<<<<<< HEAD
     (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
 }
+||||||| parent of 8d28356 (event loop touch ups)
+    w_i.saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
+}
+=======
+    (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
+}
+
+
+pub fn synapse_to_dendrite(
+    s_idx: usize,
+    synapse_offsets: &[u32],
+) -> usize {
+    synapse_offsets.partition_point(|&o| o as usize <= s_idx) - 1
+}
+>>>>>>> 8d28356 (event loop touch ups)

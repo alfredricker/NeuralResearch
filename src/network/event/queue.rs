@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
-use crate::network::event::event::{Event};
+use crate::network::event::event::Event;
+use crate::network::event::push::EventProducer;
 
 pub struct EventQueue {
     buf: Box<[Event]>,                                                                             
@@ -22,9 +23,8 @@ impl EventQueue {
         &self.buf[head % self.buf.len()..tail % self.buf.len()]
     }
     
-    // returns the raw parts a kernel function needs to push events
-    pub fn producer_handle(&self) -> (*mut Event, &AtomicU32, u32) {
-        (
+    pub fn producer_handle(&self) -> EventProducer<'_> {
+        EventProducer::new(
             self.buf.as_ptr() as *mut Event,
             &self.tail,
             self.buf.len() as u32,
