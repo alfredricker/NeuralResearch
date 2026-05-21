@@ -1,6 +1,6 @@
 use crate::constants::X_DECAY;
 use crate::math::decay::shift_decay_u8;
-use crate::gpu::neuron::synapse::update_synapse_alpha;
+use crate::neuron::synapse::update_synapse_alpha;
 
 struct Dendrites {
     pub dendrite_activities: Vec<u16>,

@@ -1,7 +1,7 @@
-use crate::gpu::event::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE};
-use crate::gpu::event::queue::EventQueue;
-use crate::gpu::event::handlers::{handle_somatic_spike, handle_dendritic_spike};
-use crate::gpu::event::slice::{neuron_synapse_range, dendrite_synapse_range};
+use crate::network::event::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE};
+use crate::network::event::queue::EventQueue;
+use crate::network::event::handlers::{handle_somatic_spike, handle_dendritic_spike};
+use crate::network::event::slice::{neuron_synapse_range, dendrite_synapse_range};
 
 pub fn run_event_loop(
     queue: &EventQueue,

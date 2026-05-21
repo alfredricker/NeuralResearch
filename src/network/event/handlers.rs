@@ -1,8 +1,8 @@
-use crate::gpu::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, push_event};
+use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, push_event};
 use std::sync::atomic::AtomicU32;
 use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST};
-use crate::gpu::neuron::synapse::{update_weight, update_synapse_alpha};
-use crate::gpu::neuron::dendrite::update_dendrite_activity;
+use crate::neuron::synapse::{update_weight, update_synapse_alpha};
+use crate::neuron::dendrite::update_dendrite_activity;
 
 // Somatic spike: update beta, BaP weight updates across all owned synapses, emit ForwardAP.
 // Alpha decay on each synapse is lazy — computed here from synapse_last_events.
@@ -100,7 +100,7 @@ pub fn handle_forward_ap(
     synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
 
     let delta = update_dendrite_activity(
-        dendrite_idx, s_idx, timestamp,
+        s_idx, timestamp,
         synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
     );
     *dendrite_activity = dendrite_activity.saturating_add_signed(delta);

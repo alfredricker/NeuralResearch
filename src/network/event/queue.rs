@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU32, Ordering};
-use super::event::Event;
+use crate::network::event::event::{Event};
 
 pub struct EventQueue {
     buf: Box<[Event]>,                                                                             
