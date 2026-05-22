@@ -34,6 +34,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shift_decay_u8_no_elapsed_unchanged() {
+        assert_eq!(shift_decay_u8(200, 0, 8), 200);
+    }
+
+    #[test]
+    fn shift_decay_u8_one_half_life() {
+        // k=8 → halves every 2^8=256 ticks; remainder=0 so exact
+        assert_eq!(shift_decay_u8(200, 256, 8), 100);
+    }
+
+    #[test]
+    fn shift_decay_u8_zero_val_stays_zero() {
+        assert_eq!(shift_decay_u8(0, 1000, 8), 0);
+    }
+
+    #[test]
+    fn shift_decay_u8_sixteen_half_lives_returns_zero() {
+        // 16+ half-lives (16 * 256 = 4096) → shifts >= 16, returns 0
+        assert_eq!(shift_decay_u8(255, 4096, 8), 0);
+    }
+
+    #[test]
     fn print_decay_table() {
         let cases: &[(u16, u16, u16)] = &[
             // (v,   t,   k)

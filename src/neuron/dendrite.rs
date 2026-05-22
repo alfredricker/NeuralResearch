@@ -38,13 +38,6 @@ pub fn update_dendrite_activity(
         gamma = gamma.saturating_add(shift_decay_u8(alpha_j, dx as u16, X_DECAY) as u16);
     }
 
-<<<<<<< HEAD
-    (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
-}
-||||||| parent of 8d28356 (event loop touch ups)
-    w_i.saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
-}
-=======
     (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
 }
 
@@ -55,4 +48,72 @@ pub fn synapse_to_dendrite(
 ) -> usize {
     synapse_offsets.partition_point(|&o| o as usize <= s_idx) - 1
 }
->>>>>>> 8d28356 (event loop touch ups)
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // offsets [0, 3, 7, 12]: dendrite 0 owns s[0..3], dendrite 1 owns s[3..7], dendrite 2 owns s[7..12]
+    const OFFSETS: [u32; 4] = [0, 3, 7, 12];
+
+    #[test]
+    fn synapse_to_dendrite_first_synapse_of_first_dendrite() {
+        assert_eq!(synapse_to_dendrite(0, &OFFSETS), 0);
+    }
+
+    #[test]
+    fn synapse_to_dendrite_last_synapse_of_first_dendrite() {
+        assert_eq!(synapse_to_dendrite(2, &OFFSETS), 0);
+    }
+
+    #[test]
+    fn synapse_to_dendrite_first_synapse_of_second_dendrite() {
+        assert_eq!(synapse_to_dendrite(3, &OFFSETS), 1);
+    }
+
+    #[test]
+    fn synapse_to_dendrite_first_synapse_of_third_dendrite() {
+        assert_eq!(synapse_to_dendrite(7, &OFFSETS), 2);
+    }
+
+    #[test]
+    fn synapse_to_dendrite_last_synapse_of_third_dendrite() {
+        assert_eq!(synapse_to_dendrite(11, &OFFSETS), 2);
+    }
+
+    #[test]
+    fn update_dendrite_activity_single_synapse_no_gamma() {
+        // single synapse: gamma=0, delta = w_i * 1 = w_i
+        let xs = [10u8];
+        let mut alphas = [200u8];
+        let weights = [7i8];
+        let mut last_events = [0u16];
+        let delta = update_dendrite_activity(0, 0, &xs, &mut alphas, &weights, &mut last_events);
+        assert_eq!(delta, 7);
+    }
+
+    #[test]
+    fn update_dendrite_activity_last_synapse_has_no_neighbors() {
+        // s_idx at end of slice → no j > s_idx, gamma=0
+        let xs = [5u8, 10, 20];
+        let mut alphas = [200u8; 3];
+        let weights = [10i8, 5, 3];
+        let mut last_events = [0u16; 3];
+        let delta = update_dendrite_activity(2, 0, &xs, &mut alphas, &weights, &mut last_events);
+        assert_eq!(delta, 3); // 3 * (1 + 0)
+    }
+
+    #[test]
+    fn update_dendrite_activity_active_neighbor_increases_delta() {
+        // s_idx=0, x_i=5, w_i=10
+        // j=1: alpha_j=200 (elapsed=0), dx=5
+        //   shift_decay_u8(200, 5, X_DECAY=4): shifts=0, rem=5, drop=(100*5)>>4=31, result=169
+        // gamma=169, delta = 10 * (1+169) = 1700
+        let xs = [5u8, 10];
+        let mut alphas = [50u8, 200];
+        let weights = [10i8, 5];
+        let mut last_events = [0u16; 2];
+        let delta = update_dendrite_activity(0, 0, &xs, &mut alphas, &weights, &mut last_events);
+        assert_eq!(delta, 1700);
+    }
+}
