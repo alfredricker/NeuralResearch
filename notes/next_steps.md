@@ -50,7 +50,7 @@ structure. See topology.md.
 
 ## Step 2: input encoding
 
-Input pixels are not model neurons — they're external event sources that inject FORWARD_AP events.
+Input pixels are external event sources that inject FORWARD_AP events.
 
 ```rust
 pub fn encode_frame(
