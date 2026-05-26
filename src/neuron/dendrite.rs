@@ -41,7 +41,9 @@ pub fn update_dendrite_activity(
     (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
 }
 
-
+// binary search to find the dendrite index for a given synapse index
+// synapse_offsets is a sorted array of the starting synapse index for each dendrite
+// dendrite i owns synapses in the range [synapse_offsets[i], synapse_offsets[i+1])
 pub fn synapse_to_dendrite(
     s_idx: usize,
     synapse_offsets: &[u32],

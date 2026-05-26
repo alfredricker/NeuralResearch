@@ -2,4 +2,4 @@
 /// How do we initialize synapses for neurons?
 /// How do we initialize network components?
 /// Threshold initialization? Etc.
-pub mod neuron;
+pub mod config;
