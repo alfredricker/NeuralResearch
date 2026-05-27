@@ -3,3 +3,4 @@
 /// How do we initialize network components?
 /// Threshold initialization? Etc.
 pub mod config;
+pub mod sample;
