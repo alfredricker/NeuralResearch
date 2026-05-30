@@ -6,8 +6,8 @@ use rand::Rng;
 use super::Network;
 
 pub struct NetworkBuilder {
-    populations: Vec<Population>,
-    connections: Vec<Connection>,
+    pub populations: Vec<Population>,
+    pub connections: Vec<Connection>,
 }
 
 impl NetworkBuilder {
@@ -24,11 +24,6 @@ impl NetworkBuilder {
     pub fn connect(&mut self, from: u32, to: u32, c: Compartment, rule: ConnRule) {
         self.connections.push(Connection {from, to, compartment: c, rule});
     }
-}
-
-
-pub fn build_network(populations: Vec<Population>, rng: &mut impl Rng) -> Network {
-    Network {}
 }
 
 pub enum BuildError {

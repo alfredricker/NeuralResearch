@@ -7,7 +7,7 @@ pub enum Compartment {
     Basal,
 }
 
-struct Dendrites {
+pub struct Dendrite {
     pub dendrite_activities: Vec<u16>,
     pub dendrite_last_events: Vec<u16>,
     pub dendrite_constants: Vec<i8>,

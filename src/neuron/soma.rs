@@ -1,4 +1,4 @@
-struct Soma {
+pub struct Soma {
     soma_potentials: Vec<i8>,
     soma_thresholds: Vec<i8>,
     soma_betas: Vec<u8>,
