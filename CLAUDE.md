@@ -33,7 +33,15 @@ Three event types (u8, not enum — buffer will be shared with GPU kernels):
 
 `EventQueue` holds a fixed `Box<[Event]>` ring buffer with atomic head/tail.  
 `EventProducer<'a>` wraps a raw `*mut Event` — all unsafe is isolated to `EventProducer::push`.  
-`run_event_loop` drains the queue each tick, dispatches to handlers, and handlers push new events via the producer.
+`run_event_loop` drains the queue and dispatches to handlers; handlers push new events via the producer.
+
+**No tick loop.** The simulation is purely event-driven. Timestamps on events carry all temporal information — alpha/beta decay is computed lazily from `timestamp.wrapping_sub(last_event)` at the moment an event fires. There is no global clock stepping state forward between calls.
+
+For input presentation (e.g. MNIST), input events are pre-generated with stochastic timestamps across the trial window and pushed into the queue upfront. The event loop runs until the queue drains. Trial boundaries are handled explicitly (sentinel event or timestamp cutoff), not by a tick counter.
+
+**Open design questions from this model:**
+- Trial boundary detection: sentinel event type vs. timestamp cutoff
+- Parallel write conflicts: two events targeting the same dendrite at the same timestamp race on `dendrite_activities[d]` — needs conflict resolution strategy before parallelising the event loop
 
 ### Learning model
 STDP-like burst-dependent plasticity:
@@ -81,13 +89,14 @@ src/
 
 ## Next work: MNIST learner
 
-Build order from `notes/next_steps.md`:
+Build order:
 
-1. **Network allocator** (`src/init/neuron/mod.rs`) — `build_layer(config, n_neurons, rng)` → produces all SoA Vecs. Key constraint: `synapse_xs` must be sorted ascending per dendrite.
-2. **Input encoding** — `encode_frame(pixels, timestamp, tick, queue, pixel_axon_targets, pixel_axon_offsets)` — rate-coded Bernoulli firing per pixel.
-3. **Trial loop** — 200 ticks per trial; reset `dendrite_activities` and `soma_potentials` between trials (alpha/beta persist).
-4. **Output readout** — `spike_counts: [u32; 10]`, argmax after trial.
-5. **Training feedback** — push FORWARD_AP into correct output neuron's targets.
+1. **Network allocator** — `build_layer(config, n_neurons, rng)` → produces all SoA Vecs. Key constraint: `synapse_xs` must be sorted ascending per dendrite.
+2. **Projection builder** — `axon_offsets` + `axon_targets` (CSR format) encoding inter-layer connectivity. Dense random for first pass.
+3. **Input encoding** — pre-generate all pixel FORWARD_AP events for a trial with stochastic timestamps; push into queue upfront.
+4. **Trial boundary** — decide: sentinel event vs. timestamp cutoff to detect end-of-presentation.
+5. **Output readout** — `spike_counts: [u32; 10]`, argmax after queue drains.
+6. **Training feedback** — push FORWARD_AP into correct output neuron's targets.
 
 Layer sizes: hidden N=200 (visual_mnist config), output 10 neurons (simpler config, lower threshold).
 
