@@ -2,6 +2,11 @@ use crate::constants::X_DECAY;
 use crate::math::decay::shift_decay_u8;
 use crate::neuron::synapse::update_synapse_alpha;
 
+pub enum Compartment {
+    Apical,
+    Basal,
+}
+
 struct Dendrites {
     pub dendrite_activities: Vec<u16>,
     pub dendrite_last_events: Vec<u16>,
