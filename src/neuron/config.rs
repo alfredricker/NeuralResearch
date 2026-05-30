@@ -1,6 +1,9 @@
 use crate::math::sample::{SamplerU8, SamplerI8};
 
 pub struct NeuronConfig {
+    // ==== NAME ====
+    pub name: &'static str, // "L1Simple", "L5Pyramidal", "CA1Hippocampal" etc.
+
     // ==== TOPOLOGY ====
     pub n_basal_dendrites: u8, // proximal feedforward input
     pub n_apical_dendrites: Option<u8>, // distal top down input
@@ -27,6 +30,7 @@ pub struct NeuronConfig {
 
 impl NeuronConfig {
     pub fn new(
+        name: &'static str,
         n_basal_dendrites: u8,
         n_apical_dendrites: Option<u8>,
         synapse_x_sampler: SamplerU8,
@@ -40,6 +44,7 @@ impl NeuronConfig {
         learning_rate: i16,
     ) -> Self {
         Self {
+            name,
             n_basal_dendrites,
             n_apical_dendrites,
             synapse_x_sampler,
