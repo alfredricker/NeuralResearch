@@ -99,7 +99,7 @@ mod tests {
         let mut alphas = [200u8];
         let weights = [7i8];
         let mut last_events = [0u16];
-        let delta = update_dendrite_activity(0, 0, &xs, &mut alphas, &weights, &mut last_events);
+        let delta = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events);
         assert_eq!(delta, 7);
     }
 
@@ -110,7 +110,7 @@ mod tests {
         let mut alphas = [200u8; 3];
         let weights = [10i8, 5, 3];
         let mut last_events = [0u16; 3];
-        let delta = update_dendrite_activity(2, 0, &xs, &mut alphas, &weights, &mut last_events);
+        let delta = update_dendrite_activity(2, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events);
         assert_eq!(delta, 3); // 3 * (1 + 0)
     }
 
@@ -124,7 +124,21 @@ mod tests {
         let mut alphas = [50u8, 200];
         let weights = [10i8, 5];
         let mut last_events = [0u16; 2];
-        let delta = update_dendrite_activity(0, 0, &xs, &mut alphas, &weights, &mut last_events);
+        let delta = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events);
         assert_eq!(delta, 1700);
+    }
+
+    #[test]
+    fn update_dendrite_activity_live_end_excludes_dead_tail() {
+        // 3 slots but only 2 are live (live_end=2). The distal slot at index 2 has high alpha
+        // but is a dead/unbound slot and must NOT contribute to gamma.
+        // s_idx=0, x_i=5, w_i=10; only j=1 is in range: alpha=200, dx=5 → shift_decay_u8(200,5,4)=169
+        // gamma=169, delta = 10 * (1+169) = 1700 — identical to the 2-live-synapse case above.
+        let xs = [5u8, 10, 20];
+        let mut alphas = [50u8, 200, 255];
+        let weights = [10i8, 5, 3];
+        let mut last_events = [0u16; 3];
+        let delta = update_dendrite_activity(0, 0, 2, &xs, &mut alphas, &weights, &mut last_events);
+        assert_eq!(delta, 1700); // dead slot 2 ignored despite alpha=255
     }
 }

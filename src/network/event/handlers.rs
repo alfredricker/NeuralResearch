@@ -76,6 +76,7 @@ pub fn handle_forward_ap(
     s_idx: usize,
     dendrite_idx: usize,
     timestamp: u16,
+    live_end: usize,
     synapse_xs: &[u8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
@@ -88,7 +89,7 @@ pub fn handle_forward_ap(
     synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
 
     let delta = update_dendrite_activity(
-        s_idx, timestamp,
+        s_idx, timestamp, live_end,
         synapse_xs, synapse_alphas,
         synapse_weights, synapse_last_events,
     );
@@ -99,6 +100,34 @@ pub fn handle_forward_ap(
         producer.push(Event { event_type: DENDRITIC_SPIKE, source: dendrite_idx as u32, timestamp });
     }
 }
+
+
+// Apical feedback event received at a synapse: boost alpha by axon_constant, apply
+// multiplicative somatic update, emit one SOMATIC_SPIKE per threshold crossing.
+pub fn handle_apical_fb(
+    s_idx: usize,
+    neuron_idx: usize,
+    timestamp: u16,
+    axon_constant: u8,
+    synapse_alphas: &mut [u8],
+    synapse_last_events: &mut [u16],
+    soma_potential: &mut i8,
+    soma_threshold: i8,
+    producer: &EventProducer,
+) {
+    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
+    let effective_alpha = alpha.saturating_add(axon_constant);
+    let v_s = (*soma_potential).max(0) as i32;
+    let new_v = *soma_potential as i32 + effective_alpha as i32 * v_s;
+
+    let burst_count = new_v / soma_threshold as i32;
+    *soma_potential = (new_v % soma_threshold as i32) as i8;
+
+    for _ in 0..burst_count {
+        producer.push(Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
+    }
+}
+
 
 
 #[cfg(test)]
@@ -271,7 +300,7 @@ mod tests {
         let dendrite_threshold = 1000u16;
 
         handle_forward_ap(
-            0, 5, 0, &xs, &mut alphas, &mut last_events,
+            0, 5, 0, xs.len(), &xs, &mut alphas, &mut last_events,
             &weights, &mut dendrite_activity, &dendrite_threshold,
             &producer,
         );
@@ -295,7 +324,7 @@ mod tests {
         let dendrite_threshold = 1000u16;
 
         handle_forward_ap(
-            0, 3, 0, &xs, &mut alphas, &mut last_events,
+            0, 3, 0, xs.len(), &xs, &mut alphas, &mut last_events,
             &weights, &mut dendrite_activity, &dendrite_threshold,
             &producer,
         );
@@ -308,30 +337,50 @@ mod tests {
         assert_eq!(events[0].source, 3); // dendrite_idx
         assert_eq!(events[0].timestamp, 0);
     }
-}
 
-// Apical feedback event received at a synapse: boost alpha by axon_constant, apply
-// multiplicative somatic update, emit one SOMATIC_SPIKE per threshold crossing.
-pub fn handle_apical_fb(
-    s_idx: usize,
-    neuron_idx: usize,
-    timestamp: u16,
-    axon_constant: u8,
-    synapse_alphas: &mut [u8],
-    synapse_last_events: &mut [u16],
-    soma_potential: &mut i8,
-    soma_threshold: i8,
-    producer: &EventProducer,
-) {
-    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
-    let effective_alpha = alpha.saturating_add(axon_constant);
-    let v_s = (*soma_potential).max(0) as i32;
-    let new_v = *soma_potential as i32 + effective_alpha as i32 * v_s;
+    // --- handle_apical_fb ---
 
-    let burst_count = new_v / soma_threshold as i32;
-    *soma_potential = (new_v % soma_threshold as i32) as i8;
+    #[test]
+    fn apical_fb_multiplicative_burst_and_remainder() {
+        let queue = EventQueue::new(64);
+        let producer = queue.producer_handle();
+        let mut alphas = [10u8];
+        let mut last_events = [0u16];
+        let mut soma_potential = 10i8;
+        let soma_threshold = 50i8;
 
-    for _ in 0..burst_count {
-        producer.push(Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
+        // alpha decays to 10 (elapsed=0), effective_alpha = 10 + axon_constant(5) = 15
+        // v_s = 10; new_v = 10 + 15*10 = 160; burst_count = 160/50 = 3; remainder = 160%50 = 10
+        handle_apical_fb(
+            0, 7, 0, 5,
+            &mut alphas, &mut last_events,
+            &mut soma_potential, soma_threshold,
+            &producer,
+        );
+
+        assert_eq!(soma_potential, 10); // carried remainder
+        let events = queue.drain();
+        assert_eq!(events.len(), 3);
+        assert!(events.iter().all(|e| e.event_type == SOMATIC_SPIKE && e.source == 7));
+    }
+
+    #[test]
+    fn apical_fb_no_burst_when_soma_subthreshold() {
+        let queue = EventQueue::new(64);
+        let producer = queue.producer_handle();
+        let mut alphas = [0u8];
+        let mut last_events = [0u16];
+        let mut soma_potential = 0i8;   // v_s = 0 → multiplicative term vanishes
+        let soma_threshold = 50i8;
+
+        handle_apical_fb(
+            0, 2, 0, 5,
+            &mut alphas, &mut last_events,
+            &mut soma_potential, soma_threshold,
+            &producer,
+        );
+
+        assert_eq!(soma_potential, 0);
+        assert_eq!(queue.drain().len(), 0);
     }
 }

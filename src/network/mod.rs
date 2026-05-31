@@ -22,5 +22,7 @@ impl Network {
             // map synapses of the population to the corresponding dendrites
             // of the target population according to the connection rule
         }
+        // TODO: allocator + connection resolver not implemented yet (see docs/09-gaps).
+        todo!("Network::build: allocate SoA arrays and resolve connections")
     }
 }
