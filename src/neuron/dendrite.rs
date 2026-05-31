@@ -13,6 +13,8 @@ pub struct Dendrite {
     pub dendrite_constants: Vec<i8>,
     pub dendrite_thresholds: Vec<u16>,
     pub synapse_offsets: Vec<u32>,
+    // fixed slot model, see docs
+    pub live_synapse_counts: Vec<u8>, // number of synapse SLOTS that are active on this dendrite
 }
 
 /// when a synapse receives a spike event, it must update the voltage of the parent dendrite
@@ -24,6 +26,7 @@ pub struct Dendrite {
 pub fn update_dendrite_activity(
     s_idx: usize, // which synapse triggered the update
     timestamp: u16,
+    live_end: usize, // = base + live_count, computed by caller
     synapse_xs: &[u8],
     synapse_alphas: &mut [u8],
     synapse_weights: &[i8],
@@ -36,7 +39,8 @@ pub fn update_dendrite_activity(
 
     // loop to calculate gamma
     // synapses must be ordered by increasing x
-    for j in (s_idx + 1)..synapse_xs.len() {
+    for j in (s_idx + 1)..live_end {
+        // lazy update decay for each synapse j > i to get current alpha_j, then calculate contribution to gamma
         let alpha_j = update_synapse_alpha(j, timestamp, synapse_alphas, synapse_last_events);
         let dx = synapse_xs[j] - x_i;
         // shift_decay_u8(alpha_j, dx, X_DECAY) ≈ alpha_j * exp(-dx / 2^X_DECAY)
