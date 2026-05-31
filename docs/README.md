@@ -35,6 +35,13 @@ previous ones. Read in order the first time.
     segmented reduction, the event-buffer kernel pattern, and how the network is
     partitioned into VRAM (Hawkes-driven hot-loading, METIS vs. biological cuts).
 
+### Resources
+
+- [Index relationships (Mermaid diagrams)](resources/index-relationships.md) —
+  how neuron / dendrite / synapse / axon connect through offset arrays and
+  reverse lookups, with a worked example and the forward-AP path traced through
+  indices.
+
 ## Status at a glance
 
 **Implemented and unit-tested** — the leaf biophysics and the event machinery:

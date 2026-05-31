@@ -117,6 +117,13 @@ There is also a `dendrite_to_neuron: Vec<u32>` reverse map (a parameter to the
 event loop) so that a dendritic spike, which knows only its dendrite index, can
 find its soma in O(1) without searching `dendrite_offsets`.
 
+> **See the diagrams.** [`resources/index-relationships.md`](resources/index-relationships.md)
+> renders this hierarchy, a concrete worked example, and the forward-AP path —
+> all as Mermaid diagrams. A key consequence to internalize: the global synapse
+> array is ordered by `(neuron, dendrite, x)`, so an absolute synapse index
+> implicitly identifies its owning dendrite and neuron — which is exactly why
+> `axon_targets` can store nothing but a synapse index.
+
 ## 3.3 The packed dendrite address (planned)
 
 `docs/code/data.md` proposed encoding a full dendrite address in one `u32`:
@@ -146,7 +153,7 @@ dendrites per neuron); it is not a separate addressable tier at runtime.
 ## 3.4 Memory budget (first-order estimates)
 
 Per-synapse runtime state is 4 bytes: `weight (i8) + x (u8) + alpha (u8) +
-last_event (u16)` = 1+1+1+2 ≈ 4 (the `u16` may force 2-byte alignment depending
+last_event `(u16) = 1+1+1+2 ≈ 4` (the `u16` may force 2-byte alignment depending
 on how columns are stored; as separate `Vec`s there is no inter-column padding).
 
 For the `visual_mnist`-style neuron (6 basal × 8 dendrites/branch × 16 synapses =
