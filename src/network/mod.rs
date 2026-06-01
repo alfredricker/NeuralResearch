@@ -1,9 +1,10 @@
 pub mod event;
 pub mod topology;
 pub mod build;
-pub mod alloc;
 
-use crate::network::build::NetworkBuilder;
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use crate::network::build::{NetworkBuilder, build_network};
 use crate::neuron::dendrite::Dendrite;
 use crate::neuron::soma::Soma;
 use crate::neuron::synapse::Synapse;
@@ -21,11 +22,7 @@ pub struct Network {
 
 impl Network {
     pub fn build(builder: NetworkBuilder) -> Self {
-        for c in &builder.connections {
-            // map synapses of the population to the corresponding dendrites
-            // of the target population according to the connection rule
-        }
-        // TODO: allocator + connection resolver not implemented yet (see docs/09-gaps).
-        todo!("Network::build: allocate SoA arrays and resolve connections")
+        let mut rng = SmallRng::seed_from_u64(862396277738699236);
+        build_network(builder, &mut rng)
     }
 }
