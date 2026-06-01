@@ -1,8 +1,8 @@
 pub struct Soma {
-    soma_potentials: Vec<i8>,
-    soma_thresholds: Vec<i8>,
-    soma_betas: Vec<u8>,
-    soma_last_events: Vec<u16>,
-    soma_lrs: Vec<i16>, // learning rates
-    dendrite_offsets: Vec<u32>,
+    pub soma_potentials: Vec<i8>,
+    pub soma_thresholds: Vec<i8>,
+    pub soma_betas: Vec<u8>,
+    pub soma_last_events: Vec<u16>,
+    pub soma_lrs: Vec<i16>, // learning rates
+    pub dendrite_offsets: Vec<u32>,
 }

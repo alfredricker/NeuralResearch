@@ -93,11 +93,11 @@ pub fn run_event_loop(
                     );
                 }
             }
-            // Apical feedback fans out like FORWARD_AP, but lands on apical synapses and
-            // modulates the TARGET neuron's soma multiplicatively (handle_apical_fb).
+            // Apical feedback fans out like FORWARD_AP, but lands on apical dendrites and drives a
+            // GRADED sigmoidal plateau (handle_apical_fb) instead of a discrete dendritic spike.
+            // The apical branch voltage is integrated in the same dendrite_activities array.
             // NOTE: until a separate apical synapse compartment + apical axon CSR exist, this
-            // reuses the feedforward axon_targets and derives the feedback gain from the target
-            // dendrite's constant. See docs/09-gaps-and-open-questions.md (apical not fully wired).
+            // reuses the feedforward axon_targets. See docs/09-gaps-and-open-questions.md.
             APICAL_FB => {
                 let n = e.source as usize;
                 for &s in &axon_targets[axon_offsets[n] as usize..axon_offsets[n + 1] as usize] {
@@ -106,14 +106,19 @@ pub fn run_event_loop(
                     let target_n = dendrite_to_neuron[d] as usize;
                     let (s_start, s_end) = dendrite_synapse_range(d, synapse_offsets);
                     let local_s = s - s_start;
-                    let axon_constant = dendrite_constants[d].unsigned_abs();
+                    let live_end = dendrite_live_counts[d] as usize;
                     handle_apical_fb(
                         local_s,
                         target_n,
                         e.timestamp,
-                        axon_constant,
+                        live_end,
+                        &synapse_xs[s_start..s_end],
                         &mut synapse_alphas[s_start..s_end],
                         &mut synapse_last_events[s_start..s_end],
+                        &synapse_weights[s_start..s_end],
+                        &mut dendrite_activities[d],
+                        &mut dendrite_last_events[d],
+                        dendrite_thresholds[d],
                         &mut soma_potentials[target_n],
                         soma_thresholds[target_n],
                         &producer,

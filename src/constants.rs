@@ -10,3 +10,16 @@ pub const X_DECAY: u8 = 4; // x decay term for dendritic integration. Halves eve
 pub const MSLR: u16 = 120;
 
 pub const ALPHA_BOOST: u8 = 64; // alpha added to a synapse when it receives a forward AP
+
+// Fixed synapse-slot capacity per dendrite (the uniform analytic stride S, so
+// synapse_offsets[d] = d * S). live_synapse_counts[d] holds the actual bound count <= S.
+// NOTE: at u8::MAX this over-provisions heavily (~16x for a 16-live-synapse dendrite);
+// tune here if memory matters.
+pub const SYNAPSE_SLOTS_PER_DENDRITE: usize = u8::MAX as usize;
+
+// --- apical compartment (Payeur et al. 2021 sigmoidal plateau transfer function) ---
+// σ^(ap)(V_B) = δV_S / (1 + exp(−κ(V_B − θ_B))). θ_B reuses dendrite_thresholds; the rest:
+// VALUES UNTUNED (placeholders, like H_BETA) — calibrate once the feedback path runs.
+pub const APICAL_DV_S: i16 = 64; // δV_S: max plateau depolarization delivered to the soma
+pub const APICAL_SLOPE_K: u8 = 9; // sigmoid slope; κ = ln2 / 2^k. D halves every 2^k of |V_B − θ_B|
+pub const APICAL_LEAK_K: u8 = 8; // apical branch-voltage (V_B) leak half-life = 2^k ticks

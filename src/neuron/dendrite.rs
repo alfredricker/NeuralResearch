@@ -1,5 +1,5 @@
 use crate::constants::X_DECAY;
-use crate::math::decay::shift_decay_u8;
+use crate::math::decay::{shift_decay, shift_decay_u8};
 use crate::neuron::synapse::update_synapse_alpha;
 
 pub enum Compartment {
@@ -8,13 +8,17 @@ pub enum Compartment {
 }
 
 pub struct Dendrite {
-    pub dendrite_activities: Vec<u16>,
+    pub dendrite_activities: Vec<u16>,  // branch voltage V_B (basal AND apical integrate here)
     pub dendrite_last_events: Vec<u16>,
-    pub dendrite_constants: Vec<i8>,
-    pub dendrite_thresholds: Vec<u16>,
+    pub dendrite_constants: Vec<i8>,    // basal branch constant (unused by the apical pathway)
+    pub dendrite_thresholds: Vec<u16>,  // basal: hard spike threshold; apical: θ_B half-activation
     pub synapse_offsets: Vec<u32>,
     // fixed slot model, see docs
     pub live_synapse_counts: Vec<u8>, // number of synapse SLOTS that are active on this dendrite
+    pub dendrite_to_neuron: Vec<u32>, // reverse map d -> owning neuron index (analytic d/D, stored for the event loop)
+    // compartment flag: 0 = basal (hard-threshold dendritic spike), 1 = apical (graded sigmoid
+    // plateau). u8 not bool so the buffer can be shared with GPU kernels (cf. event_type).
+    pub dendrite_is_apical: Vec<u8>,
 }
 
 /// when a synapse receives a spike event, it must update the voltage of the parent dendrite
@@ -48,6 +52,29 @@ pub fn update_dendrite_activity(
     }
 
     (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
+}
+
+/// Apical dendritic transfer function (Payeur et al. 2021), adapted to the branch formalism:
+///   σ^(ap)(V_B) = δV_S / (1 + exp(−κ(V_B − θ_B)))
+/// where V_B is the apical branch voltage (integrated by `update_dendrite_activity`, exactly as
+/// for basal), θ_B is the half-activation point, δV_S the plateau ceiling, and κ the slope.
+///
+/// Unlike a basal dendrite (hard threshold → discrete spike), the apical branch produces this
+/// GRADED somatic depolarization. It is computed with the existing base-2 decay rather than a
+/// real `exp`: the logistic core e^(−κ·) IS `shift_decay`, and the V_B < θ_B side uses the
+/// logistic symmetry σ(−x) = 1 − σ(x). `k` sets the slope (κ = ln2 / 2^k): the scaled decay
+/// D = 256·2^(−|V_B−θ_B|/2^k) halves every 2^k of distance from θ_B. Returns a value in [0, δV_S].
+pub fn apical_plateau(v_b: u16, theta: u16, dv_s: i16, k: u8) -> i16 {
+    const UNIT: i32 = 256;
+    let u = (v_b as i32 - theta as i32).unsigned_abs() as u16; // |V_B − θ_B|
+    let d = shift_decay(UNIT as u16, u, k) as i32; // D = 256·2^(−u/2^k) ∈ [0, 256]
+    let dv = dv_s as i32;
+    let out = if v_b >= theta {
+        dv * UNIT / (UNIT + d) // upper half: σ ≥ 1/2  → output ∈ [δV_S/2, δV_S]
+    } else {
+        dv * d / (UNIT + d) // lower half: σ < 1/2  → output ∈ [0, δV_S/2]
+    };
+    out as i16
 }
 
 // binary search to find the dendrite index for a given synapse index
@@ -140,5 +167,36 @@ mod tests {
         let mut last_events = [0u16; 3];
         let delta = update_dendrite_activity(0, 0, 2, &xs, &mut alphas, &weights, &mut last_events);
         assert_eq!(delta, 1700); // dead slot 2 ignored despite alpha=255
+    }
+
+    // --- apical_plateau (sigmoidal transfer; dv_s=64, k=9, θ_B=1000) ---
+
+    #[test]
+    fn apical_plateau_midpoint_is_half() {
+        // V_B == θ_B → σ = 1/2 → δV_S/2
+        assert_eq!(apical_plateau(1000, 1000, 64, 9), 32);
+    }
+
+    #[test]
+    fn apical_plateau_saturates_high() {
+        // V_B far above θ_B → D → 0 → σ → 1 → δV_S
+        assert_eq!(apical_plateau(60000, 1000, 64, 9), 64);
+    }
+
+    #[test]
+    fn apical_plateau_monotonic_increasing() {
+        // sampled a half-life (2^9=512) either side of θ_B
+        let lo = apical_plateau(1000 - 512, 1000, 64, 9);
+        let mid = apical_plateau(1000, 1000, 64, 9);
+        let hi = apical_plateau(1000 + 512, 1000, 64, 9);
+        assert!(lo < mid && mid < hi, "expected {lo} < {mid} < {hi}");
+    }
+
+    #[test]
+    fn apical_plateau_symmetric_about_theta() {
+        // σ(θ+u) + σ(θ−u) ≈ δV_S (within integer rounding)
+        let above = apical_plateau(1000 + 512, 1000, 64, 9) as i32;
+        let below = apical_plateau(1000 - 512, 1000, 64, 9) as i32;
+        assert!((above + below - 64).abs() <= 1, "{above} + {below} not ≈ 64");
     }
 }

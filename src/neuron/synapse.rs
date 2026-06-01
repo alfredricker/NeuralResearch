@@ -2,12 +2,12 @@ use crate::math::decay::shift_decay_u8;
 use crate::constants::{ALPHA_DECAY, H_ALPHA, H_BETA};
 
 pub struct Synapse {
-    synapse_weights: Vec<i8>,
-    // must order them by increasing x for a given dendrite. 
+    pub synapse_weights: Vec<i8>,
+    // must order them by increasing x for a given dendrite.
     // x must also be unique along a dendrite
-    synapse_x: Vec<u8>,
-    synapse_alphas: Vec<u8>,
-    synapse_last_events: Vec<u16>,
+    pub synapse_x: Vec<u8>,
+    pub synapse_alphas: Vec<u8>,
+    pub synapse_last_events: Vec<u16>,
 }
 
 // Applies lazy alpha decay for a synapse and updates its timestamp. Returns the new alpha.

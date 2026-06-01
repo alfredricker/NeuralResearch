@@ -24,9 +24,20 @@ pub enum ConnRule {
 }
 
 impl ConnRule {
-    pub fn apply(&self, synapses: &mut Synapse, dendrites: &mut Dendrite, size: u32) {
+    pub fn apply(
+        &self, 
+        src_population_indices: &[u32], 
+        dst_population_indices: &[u32], 
+        compartment: Compartment, 
+        synapses: &mut Synapse
+    ) -> Result<(), ConnError> {
         // apply the connection rule to determine the synapse offsets for each neuron in the target population
         // this will involve random sampling for some rules, so we may need to pass in a random number generator
+        match self {
+            ConnRule::DenseRandom { p } {
+
+            }
+        }
     }
 }
 

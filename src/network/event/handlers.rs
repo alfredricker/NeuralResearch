@@ -1,7 +1,8 @@
 use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, EventProducer};
-use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST};
+use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST, APICAL_DV_S, APICAL_SLOPE_K, APICAL_LEAK_K};
+use crate::math::decay::shift_decay;
 use crate::neuron::synapse::{update_weight, update_synapse_alpha};
-use crate::neuron::dendrite::update_dendrite_activity;
+use crate::neuron::dendrite::{update_dendrite_activity, apical_plateau};
 
 // Somatic spike: update beta, BaP weight updates across all owned synapses, emit ForwardAP.
 // Alpha decay on each synapse is lazy — computed here from synapse_last_events.
@@ -102,29 +103,58 @@ pub fn handle_forward_ap(
 }
 
 
-// Apical feedback event received at a synapse: boost alpha by axon_constant, apply
-// multiplicative somatic update, emit one SOMATIC_SPIKE per threshold crossing.
+// Apical feedback received at a synapse (Payeur-style graded plateau). Unlike a basal dendritic
+// spike (hard threshold → discrete DENDRITIC_SPIKE), the apical branch produces a GRADED somatic
+// depolarization:
+//   1. lazily leak the branch voltage V_B (the ρ term) since the last apical event
+//   2. boost the synapse alpha and integrate V_B with the shared gamma machinery (as basal)
+//   3. map V_B through the sigmoidal transfer apical_plateau() → somatic depolarization
+//   4. deliver it to the soma, emitting a burst of SOMATIC_SPIKEs (coupling "1a"). There is NO
+//      hard reset of V_B — the apical branch is graded and leaks instead.
+// synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
 pub fn handle_apical_fb(
     s_idx: usize,
     neuron_idx: usize,
     timestamp: u16,
-    axon_constant: u8,
+    live_end: usize,
+    synapse_xs: &[u8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
+    synapse_weights: &[i8],
+    dendrite_activity: &mut u16,   // apical branch voltage V_B
+    dendrite_last_event: &mut u16, // for the lazy leak of V_B
+    theta: u16,                    // θ_B half-activation (the dendrite's threshold entry)
     soma_potential: &mut i8,
     soma_threshold: i8,
     producer: &EventProducer,
 ) {
+    // 1. lazy leak of the apical branch voltage since the last apical event
+    let elapsed = timestamp.wrapping_sub(*dendrite_last_event);
+    *dendrite_activity = shift_decay(*dendrite_activity, elapsed, APICAL_LEAK_K);
+    *dendrite_last_event = timestamp;
+
+    // 2. boost this synapse and integrate the branch voltage (same gamma machinery as basal)
     let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
-    let effective_alpha = alpha.saturating_add(axon_constant);
-    let v_s = (*soma_potential).max(0) as i32;
-    let new_v = *soma_potential as i32 + effective_alpha as i32 * v_s;
+    synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
+    let delta = update_dendrite_activity(
+        s_idx, timestamp, live_end,
+        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
+    );
+    *dendrite_activity = dendrite_activity.saturating_add_signed(delta);
 
-    let burst_count = new_v / soma_threshold as i32;
-    *soma_potential = (new_v % soma_threshold as i32) as i8;
+    // 3. graded sigmoidal plateau (instead of a hard threshold → dendritic spike)
+    let plateau = apical_plateau(*dendrite_activity, theta, APICAL_DV_S, APICAL_SLOPE_K);
 
-    for _ in 0..burst_count {
-        producer.push(Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
+    // 4. coupling "1a": plateau depolarizes the soma; emit a burst, carry the remainder.
+    let new_v = *soma_potential as i32 + plateau as i32;
+    if soma_threshold > 0 && new_v >= soma_threshold as i32 {
+        let burst = new_v / soma_threshold as i32;
+        *soma_potential = (new_v % soma_threshold as i32) as i8;
+        for _ in 0..burst {
+            producer.push(Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
+        }
+    } else {
+        *soma_potential = new_v.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
     }
 }
 
@@ -338,49 +368,65 @@ mod tests {
         assert_eq!(events[0].timestamp, 0);
     }
 
-    // --- handle_apical_fb ---
+    // --- handle_apical_fb (graded sigmoidal plateau) ---
 
     #[test]
-    fn apical_fb_multiplicative_burst_and_remainder() {
+    fn apical_fb_graded_plateau_drives_soma_burst() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
-        let mut alphas = [10u8];
+        let xs = [10u8];
+        let mut alphas = [0u8];
         let mut last_events = [0u16];
-        let mut soma_potential = 10i8;
-        let soma_threshold = 50i8;
+        let weights = [10i8];
+        let mut dendrite_activity = 0u16;
+        let mut dendrite_last_event = 0u16;
+        let theta = 0u16; // V_B above θ_B → upper half of the sigmoid
+        let mut soma_potential = 0i8;
+        let soma_threshold = 20i8;
 
-        // alpha decays to 10 (elapsed=0), effective_alpha = 10 + axon_constant(5) = 15
-        // v_s = 10; new_v = 10 + 15*10 = 160; burst_count = 160/50 = 3; remainder = 160%50 = 10
+        // single synapse: gamma=0, V_B = leak(0) + 10. plateau = apical_plateau(10,0,64,9) = 32.
+        // soma: 0 + 32 = 32 >= 20 → burst = 1, remainder = 12.
         handle_apical_fb(
-            0, 7, 0, 5,
-            &mut alphas, &mut last_events,
+            0, 5, 0, xs.len(),
+            &xs, &mut alphas, &mut last_events, &weights,
+            &mut dendrite_activity, &mut dendrite_last_event, theta,
             &mut soma_potential, soma_threshold,
             &producer,
         );
 
-        assert_eq!(soma_potential, 10); // carried remainder
+        assert_eq!(alphas[0], ALPHA_BOOST);
+        assert_eq!(dendrite_activity, 10);
+        assert_eq!(soma_potential, 12);
         let events = queue.drain();
-        assert_eq!(events.len(), 3);
-        assert!(events.iter().all(|e| e.event_type == SOMATIC_SPIKE && e.source == 7));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, SOMATIC_SPIKE);
+        assert_eq!(events[0].source, 5);
     }
 
     #[test]
-    fn apical_fb_no_burst_when_soma_subthreshold() {
+    fn apical_fb_leaks_branch_voltage_between_events() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
+        let xs = [10u8];
         let mut alphas = [0u8];
         let mut last_events = [0u16];
-        let mut soma_potential = 0i8;   // v_s = 0 → multiplicative term vanishes
-        let soma_threshold = 50i8;
+        let weights = [0i8]; // weight 0 → no new V_B contribution, isolate the leak
+        let mut dendrite_activity = 256u16; // prior branch voltage
+        let mut dendrite_last_event = 0u16;
+        let theta = 0u16;
+        let mut soma_potential = 0i8;
+        let soma_threshold = 100i8;
 
+        // elapsed = 256 = 2^APICAL_LEAK_K(8) → one half-life → V_B 256 → 128, plus delta(0) = 128
         handle_apical_fb(
-            0, 2, 0, 5,
-            &mut alphas, &mut last_events,
+            0, 1, 256, xs.len(),
+            &xs, &mut alphas, &mut last_events, &weights,
+            &mut dendrite_activity, &mut dendrite_last_event, theta,
             &mut soma_potential, soma_threshold,
             &producer,
         );
 
-        assert_eq!(soma_potential, 0);
-        assert_eq!(queue.drain().len(), 0);
+        assert_eq!(dendrite_activity, 128); // leaked exactly one half-life
+        assert_eq!(dendrite_last_event, 256);
     }
 }

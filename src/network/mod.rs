@@ -1,19 +1,22 @@
 pub mod event;
 pub mod topology;
 pub mod build;
+pub mod alloc;
 
 use crate::network::build::NetworkBuilder;
 use crate::neuron::dendrite::Dendrite;
 use crate::neuron::soma::Soma;
 use crate::neuron::synapse::Synapse;
+use crate::neuron::axon::Axon;
 
 // SoA pattern for efficient GPU memory access. 
 // Each field is a vector of length equal to the total number of neurons in the network.
 // Essentially this is just a large structure of connected neurons
 pub struct Network {
+    synapses: Synapse,
     dendrites: Dendrite,
     somas: Soma,
-    synapses: Synapse,
+    axons: Axon,
 }
 
 impl Network {
