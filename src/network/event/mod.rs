@@ -5,6 +5,6 @@ pub mod handlers;
 pub mod slice;
 pub mod r#loop;
 
-pub use event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, APICAL_FB};
+pub use event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, APICAL_FB, SOMA_SIGNAL};
 pub use queue::EventQueue;
 pub use push::EventProducer;

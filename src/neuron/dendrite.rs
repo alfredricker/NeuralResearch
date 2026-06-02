@@ -1,10 +1,23 @@
-use crate::constants::{X_DECAY, BASAL_DECAY, APICAL_DECAY};
+use crate::constants::{X_DECAY, BASAL_DECAY, APICAL_DECAY, APICAL_DV_S, APICAL_SLOPE_K};
 use crate::math::decay::{shift_decay, shift_decay_u8};
 use crate::neuron::synapse::update_synapse_alpha;
 
+// Compartment kind, used by the topology/builder to tag connections.
 pub enum Compartment {
     Apical,
     Basal,
+}
+
+// What integrating a synapse signal did to its parent dendrite. The two compartments produce
+// fundamentally different outputs, so the primitive returns the compartment-appropriate verdict
+// and the handler just routes it into an event.
+pub enum DendriteOutput {
+    // Basal: hard threshold. `fired` true means V_B crossed threshold and was reset to 0 — the
+    // caller should emit a DENDRITIC_SPIKE.
+    Basal { fired: bool },
+    // Apical: graded. `plateau` is the sigmoidal depolarization to deliver to the soma; V_B is
+    // left intact (it leaks, it does not reset).
+    Apical { plateau: i16 },
 }
 
 pub struct Dendrite {
@@ -29,8 +42,12 @@ pub struct Dendrite {
 /// this allows for ordered synaptic integration
 /// The synapse arrays are slices (the gamma reduction loops over j > s_idx — the GPU-strided
 /// read that justifies the slice). The dendrite-level state is a single touched element, so the
-/// caller hands single refs already scoped to this dendrite. `is_apical` picks the leak constant;
-/// each caller knows its compartment statically.
+/// caller hands single refs already scoped to this dendrite. `is_apical` picks the leak constant
+/// and the output kind; each caller knows its compartment statically. `dendrite_threshold` is the
+/// basal hard threshold or, for apical, θ_B (the plateau half-activation).
+///
+/// This owns the dendrite's full local state machine: integrate, then either fire+reset (basal) or
+/// produce the graded plateau (apical). See [`DendriteOutput`].
 pub fn update_dendrite_activity(
     s_idx: usize, // which synapse triggered the update (slice-local)
     timestamp: u16,
@@ -41,8 +58,9 @@ pub fn update_dendrite_activity(
     synapse_last_events: &mut [u16],
     dendrite_activity: &mut u16,
     dendrite_last_event: &mut u16,
+    dendrite_threshold: u16,
     is_apical: bool,
-) {
+) -> DendriteOutput {
     let x_i = synapse_xs[s_idx];
     let w_i = synapse_weights[s_idx];
 
@@ -67,6 +85,17 @@ pub fn update_dendrite_activity(
     let gain = 1i16.saturating_add(gamma.min(i16::MAX as u16 - 1) as i16);
     let update_term = (w_i as i16).saturating_mul(gain);
     *dendrite_activity = decayed.saturating_add_signed(update_term);
+
+    if is_apical {
+        // graded sigmoidal plateau (θ_B = dendrite_threshold); V_B is NOT reset — it leaks.
+        let plateau = apical_plateau(*dendrite_activity, dendrite_threshold, APICAL_DV_S, APICAL_SLOPE_K);
+        DendriteOutput::Apical { plateau }
+    } else if *dendrite_activity >= dendrite_threshold {
+        *dendrite_activity = 0; // hard reset after a basal dendritic spike
+        DendriteOutput::Basal { fired: true }
+    } else {
+        DendriteOutput::Basal { fired: false }
+    }
 }
 
 /// Apical dendritic transfer function (Payeur et al. 2021), adapted to the branch formalism:
@@ -144,7 +173,7 @@ mod tests {
         let mut last_events = [0u16];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 7);
     }
 
@@ -157,7 +186,7 @@ mod tests {
         let mut last_events = [0u16; 3];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(2, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        update_dendrite_activity(2, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 3); // 3 * (1 + 0)
     }
 
@@ -173,7 +202,7 @@ mod tests {
         let mut last_events = [0u16; 2];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 1700);
     }
 
@@ -189,7 +218,7 @@ mod tests {
         let mut last_events = [0u16; 3];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 0, 2, &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        update_dendrite_activity(0, 0, 2, &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 1700); // dead slot 2 ignored despite alpha=255
     }
 
@@ -203,9 +232,41 @@ mod tests {
         let mut last_events = [0u16];
         let mut activity = 1024u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 1024, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        update_dendrite_activity(0, 1024, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 522);
         assert_eq!(d_last, 1024);
+    }
+
+    #[test]
+    fn update_dendrite_activity_basal_fires_and_resets_on_threshold() {
+        // V_B starts at 95, threshold 100; single synapse w=10 → 95 + 10 = 105 >= 100 → fire + reset.
+        let xs = [10u8];
+        let mut alphas = [0u8];
+        let weights = [10i8];
+        let mut last_events = [0u16];
+        let mut activity = 95u16;
+        let mut d_last = 0u16;
+        let out = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, 100, false);
+        assert!(matches!(out, DendriteOutput::Basal { fired: true }));
+        assert_eq!(activity, 0); // reset after firing
+    }
+
+    #[test]
+    fn update_dendrite_activity_apical_returns_plateau_without_reset() {
+        // apical: V_B = 0 + 10 = 10; θ_B = 0 → upper half → plateau = apical_plateau(10,0,64,9) = 32.
+        // V_B is left intact (leaks, no reset).
+        let xs = [10u8];
+        let mut alphas = [0u8];
+        let weights = [10i8];
+        let mut last_events = [0u16];
+        let mut activity = 0u16;
+        let mut d_last = 0u16;
+        let out = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, 0, true);
+        match out {
+            DendriteOutput::Apical { plateau } => assert_eq!(plateau, 32),
+            _ => panic!("expected apical output"),
+        }
+        assert_eq!(activity, 10); // not reset
     }
 
     // --- apical_plateau (sigmoidal transfer; dv_s=64, k=9, θ_B=1000) ---

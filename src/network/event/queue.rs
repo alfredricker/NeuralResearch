@@ -11,7 +11,7 @@ pub struct EventQueue {
 impl EventQueue {
     pub fn new(capacity: usize) -> Self {    
       let buf = (0..capacity)                                                                        
-          .map(|_| Event { event_type: 0, source: 0, timestamp: 0 })
+          .map(|_| Event::spike(0, 0, 0))
           .collect::<Vec<_>>()                                                                       
           .into_boxed_slice();                                                                     
       Self { buf, tail: AtomicU32::new(0), head: AtomicU32::new(0) }                                 

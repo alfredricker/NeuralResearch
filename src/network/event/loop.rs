@@ -1,6 +1,6 @@
-use crate::network::event::event::{SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, APICAL_FB};
+use crate::network::event::event::{SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, APICAL_FB, SOMA_SIGNAL};
 use crate::network::event::queue::EventQueue;
-use crate::network::event::handlers::{handle_somatic_spike, handle_dendritic_spike, handle_forward_ap, handle_apical_fb};
+use crate::network::event::handlers::{handle_somatic_spike, handle_dendritic_spike, handle_synapse_signal, handle_soma_signal};
 use crate::network::event::slice::{neuron_synapse_range, dendrite_synapse_range};
 use crate::neuron::dendrite::synapse_to_dendrite;
 
@@ -42,12 +42,24 @@ pub fn run_event_loop(
                 handle_somatic_spike(
                     n,
                     e.timestamp,
-                    &mut soma_betas[n],
-                    &mut soma_last_events[n],
-                    &soma_lrs[n],
+                    soma_betas[n], // read-only; beta dynamics live in update_soma_potential
+                    soma_lrs[n],
                     &mut synapse_weights[s_start..s_end],
                     &mut synapse_alphas[s_start..s_end],
                     &mut synapse_last_events[s_start..s_end],
+                    &producer,
+                );
+            }
+            SOMA_SIGNAL => {
+                let n = e.source as usize;
+                handle_soma_signal(
+                    n,
+                    e.timestamp,
+                    e.payload, // v_s: the voltage delta to integrate
+                    soma_potentials,
+                    soma_last_events,
+                    soma_thresholds,
+                    soma_betas,
                     &producer,
                 );
             }
@@ -59,9 +71,6 @@ pub fn run_event_loop(
                     n,
                     e.timestamp,
                     &dendrite_constants[d],
-                    &mut dendrite_last_events[d],
-                    &mut soma_potentials[n],
-                    &soma_thresholds[n],
                     &mut synapse_alphas[s_start..s_end],
                     &mut synapse_last_events[s_start..s_end],
                     &producer,
@@ -69,49 +78,26 @@ pub fn run_event_loop(
             }
             // @TODO: a loop inside the event loop is not ideal -- 
             //figure out a way to batch these or trigger an async parallel event for each item in the loop
-            FORWARD_AP => {
+            // FORWARD_AP (feedforward, basal) and APICAL_FB (top-down, apical) both deliver a synapse
+            // signal; handle_synapse_signal branches on is_apical. NOTE: until a separate apical
+            // synapse compartment + apical axon CSR exist, APICAL_FB reuses the feedforward
+            // axon_targets. See docs/09-gaps-and-open-questions.md.
+            FORWARD_AP | APICAL_FB => {
                 let n = e.source as usize;
-                for &s in &axon_targets[axon_offsets[n] as usize..axon_offsets[n + 1] as usize] {
-                    let s = s as usize;
-                    let d = synapse_to_dendrite(s, synapse_offsets);
-                    let (s_start, s_end) = dendrite_synapse_range(d, synapse_offsets);
-                    let local_s = s - s_start;
-                    // live_end is in slice-local coordinates: the slice starts at the dendrite
-                    // base, and live synapses are packed at the front, so live_end == the count.
-                    let live_end = dendrite_live_counts[d] as usize;
-                    handle_forward_ap(
-                        local_s,
-                        d,
-                        e.timestamp,
-                        live_end,
-                        &synapse_xs[s_start..s_end],
-                        &mut synapse_alphas[s_start..s_end],
-                        &mut synapse_last_events[s_start..s_end],
-                        &synapse_weights[s_start..s_end],
-                        &mut dendrite_activities[d],
-                        &mut dendrite_last_events[d],
-                        &dendrite_thresholds[d],
-                        &producer,
-                    );
-                }
-            }
-            // Apical feedback fans out like FORWARD_AP, but lands on apical dendrites and drives a
-            // GRADED sigmoidal plateau (handle_apical_fb) instead of a discrete dendritic spike.
-            // The apical branch voltage is integrated in the same dendrite_activities array.
-            // NOTE: until a separate apical synapse compartment + apical axon CSR exist, this
-            // reuses the feedforward axon_targets. See docs/09-gaps-and-open-questions.md.
-            APICAL_FB => {
-                let n = e.source as usize;
+                let is_apical = e.event_type == APICAL_FB;
                 for &s in &axon_targets[axon_offsets[n] as usize..axon_offsets[n + 1] as usize] {
                     let s = s as usize;
                     let d = synapse_to_dendrite(s, synapse_offsets);
                     let target_n = dendrite_to_neuron[d] as usize;
                     let (s_start, s_end) = dendrite_synapse_range(d, synapse_offsets);
                     let local_s = s - s_start;
+                    // live_end is in slice-local coordinates: the slice starts at the dendrite
+                    // base, and live synapses are packed at the front, so live_end == the count.
                     let live_end = dendrite_live_counts[d] as usize;
-                    handle_apical_fb(
+                    handle_synapse_signal(
                         local_s,
-                        target_n,
+                        d,        // dendrite_idx — source of a basal DENDRITIC_SPIKE
+                        target_n, // neuron_idx — target of an apical SOMA_SIGNAL
                         e.timestamp,
                         live_end,
                         &synapse_xs[s_start..s_end],
@@ -121,8 +107,7 @@ pub fn run_event_loop(
                         &mut dendrite_activities[d],
                         &mut dendrite_last_events[d],
                         dendrite_thresholds[d],
-                        &mut soma_potentials[target_n],
-                        soma_thresholds[target_n],
+                        is_apical,
                         &producer,
                     );
                 }

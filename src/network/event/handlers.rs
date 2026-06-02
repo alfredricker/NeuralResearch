@@ -1,62 +1,77 @@
 use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, EventProducer};
-use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST, APICAL_DV_S, APICAL_SLOPE_K};
+use crate::constants::{H_ALPHA, ALPHA_BOOST};
 use crate::neuron::synapse::{update_weight, update_synapse_alpha};
-use crate::neuron::dendrite::{update_dendrite_activity, apical_plateau};
+use crate::neuron::dendrite::{update_dendrite_activity, DendriteOutput};
+use crate::neuron::soma::update_soma_potential;
 
-// Somatic spike: update beta, BaP weight updates across all owned synapses, emit ForwardAP.
-// Alpha decay on each synapse is lazy — computed here from synapse_last_events.
-// synapse slices must already be scoped to this neuron via neuron_synapse_range.
-pub fn handle_somatic_spike(
+// ============================================================================================
+// Each handler does ONLY event routing: scope-in the SoA slices, call the neuron/ primitives
+// (which own all the physics — decay, integration, thresholds, resets), and translate the
+// primitive's verdict into emitted events. No physics lives here.
+//
+// Event flow:
+//   FORWARD_AP / APICAL_FB  ─► handle_synapse_signal  ─► DENDRITIC_SPIKE (basal) | SOMA_SIGNAL (apical)
+//   DENDRITIC_SPIKE         ─► handle_dendritic_spike ─► SOMA_SIGNAL
+//   SOMA_SIGNAL             ─► handle_soma_signal     ─► SOMATIC_SPIKE × burst
+//   SOMATIC_SPIKE           ─► handle_somatic_spike   ─► FORWARD_AP
+// ============================================================================================
+
+
+// A synapse receives an external action potential: feedforward (FORWARD_AP, basal dendrite) or
+// top-down (APICAL_FB, apical dendrite). Boost the receiving synapse, integrate its parent
+// dendrite, and route the dendrite's verdict onward:
+//   basal  → DENDRITIC_SPIKE, if the branch crossed threshold and fired
+//   apical → SOMA_SIGNAL, carrying the graded plateau depolarization
+// synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
+pub fn handle_synapse_signal(
+    s_idx: usize,
+    dendrite_idx: usize,
     neuron_idx: usize,
     timestamp: u16,
-    beta: &mut u8,
-    soma_last_event: &mut u16,
-    soma_lr: &i16,
-    synapse_weights: &mut [i8],
+    live_end: usize,
+    synapse_xs: &[u8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
+    synapse_weights: &[i8],
+    dendrite_activity: &mut u16,
+    dendrite_last_event: &mut u16,
+    dendrite_threshold: u16, // basal: hard threshold; apical: θ_B half-activation
+    is_apical: bool,
     producer: &EventProducer,
 ) {
-    let elapsed = timestamp.wrapping_sub(*soma_last_event);
-    let decrements = (elapsed / T_BETA).min(15) as u8;
-    *beta = beta.saturating_sub(decrements).saturating_add(1).min(63);
-    let beta = *beta;
-    *soma_last_event = timestamp;
+    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
+    synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
 
-    let lr = *soma_lr;
-
-    // BaP updates for all synapses of this neuron
-    // w = w + (beta - H_ALPHA) * alpha / 100 * lr
-    for s_idx in 0..synapse_weights.len() {
-        update_weight(timestamp, beta, lr, s_idx, synapse_alphas, synapse_last_events, synapse_weights);
+    match update_dendrite_activity(
+        s_idx, timestamp, live_end,
+        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
+        dendrite_activity, dendrite_last_event, dendrite_threshold, is_apical,
+    ) {
+        DendriteOutput::Basal { fired: true } => {
+            producer.push(Event::spike(DENDRITIC_SPIKE, dendrite_idx as u32, timestamp));
+        }
+        DendriteOutput::Basal { fired: false } => {}
+        DendriteOutput::Apical { plateau } => {
+            producer.push(Event::soma_signal(neuron_idx as u32, timestamp, plateau));
+        }
     }
-
-    producer.push(Event { event_type: FORWARD_AP, source: neuron_idx as u32, timestamp });
 }
 
 
-// Dendritic spike: propagate to soma scaled by branch_constant (proximal vs distal),
-// boost alpha on synapses active at spike time, emit SOMATIC_SPIKE if threshold crossed.
-//
-// branch_constant > 0: proximal — scales directly onto soma potential
-// branch_constant <= 0: distal — attenuated to 1, strong local NMDA-like reinforcement
+// A basal dendrite fired. Reinforce the synapses that were active at spike time (local NMDA-like
+// plasticity) and deliver a branch-constant-scaled depolarization to the soma as a SOMA_SIGNAL.
+//   branch_constant > 0: proximal — passes its magnitude to the soma
+//   branch_constant <= 0: distal — attenuated to 1 at the soma, strong local alpha reinforcement
 // synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
 pub fn handle_dendritic_spike(
     neuron_idx: usize,
     timestamp: u16,
     dendrite_constant: &i8,
-    dendrite_last_event: &mut u16,
-    soma_potential: &mut i8,
-    soma_threshold: &i8,
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
     producer: &EventProducer,
 ) {
-    *dendrite_last_event = timestamp;
-
     let branch_constant = *dendrite_constant;
-    let soma_delta: i8 = branch_constant.max(1);
-    *soma_potential = soma_potential.saturating_add(soma_delta);
 
     for s_idx in 0..synapse_alphas.len() {
         let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
@@ -65,300 +80,66 @@ pub fn handle_dendritic_spike(
         }
     }
 
-    if *soma_potential >= *soma_threshold {
-        *soma_potential = 0;
-        producer.push(Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
-    }
+    let soma_delta = branch_constant.max(1) as i16;
+    producer.push(Event::soma_signal(neuron_idx as u32, timestamp, soma_delta));
 }
 
 
-// Forward AP received at a synapse: boost alpha, update dendrite voltage, emit DENDRITIC_SPIKE if threshold crossed.
-// synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
-pub fn handle_forward_ap(
-    s_idx: usize,
-    dendrite_idx: usize,
-    timestamp: u16,
-    live_end: usize,
-    synapse_xs: &[u8],
-    synapse_alphas: &mut [u8],
-    synapse_last_events: &mut [u16],
-    synapse_weights: &[i8],
-    dendrite_activity: &mut u16,
-    dendrite_last_event: &mut u16,
-    dendrite_threshold: &u16,
-    producer: &EventProducer,
-) {
-    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
-    synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
-
-    // basal: leak + integrate in place (false = basal compartment → BASAL_DECAY)
-    update_dendrite_activity(
-        s_idx, timestamp, live_end,
-        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
-        dendrite_activity, dendrite_last_event, false,
-    );
-
-    if *dendrite_activity >= *dendrite_threshold {
-        *dendrite_activity = 0;
-        producer.push(Event { event_type: DENDRITIC_SPIKE, source: dendrite_idx as u32, timestamp });
-    }
-}
-
-
-// Apical feedback received at a synapse (Payeur-style graded plateau). Unlike a basal dendritic
-// spike (hard threshold → discrete DENDRITIC_SPIKE), the apical branch produces a GRADED somatic
-// depolarization:
-//   1. lazily leak the branch voltage V_B (the ρ term) since the last apical event
-//   2. boost the synapse alpha and integrate V_B with the shared gamma machinery (as basal)
-//   3. map V_B through the sigmoidal transfer apical_plateau() → somatic depolarization
-//   4. deliver it to the soma, emitting a burst of SOMATIC_SPIKEs (coupling "1a"). There is NO
-//      hard reset of V_B — the apical branch is graded and leaks instead.
-// synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
-pub fn handle_apical_fb(
-    s_idx: usize,
+// A voltage delta arrives at the soma (from a dendritic spike or an apical plateau). Integrate it
+// through the soma's state machine; if it bursts, emit one SOMATIC_SPIKE per AP in the burst.
+// NOTE: a burst of N emits N SOMATIC_SPIKEs (preserving the prior per-AP fan-out — each drives its
+// own FORWARD_AP and BaP sweep). Revisit if burst should instead be a single event + multiplier.
+pub fn handle_soma_signal(
     neuron_idx: usize,
     timestamp: u16,
-    live_end: usize,
-    synapse_xs: &[u8],
-    synapse_alphas: &mut [u8],
-    synapse_last_events: &mut [u16],
-    synapse_weights: &[i8],
-    dendrite_activity: &mut u16,   // apical branch voltage V_B
-    dendrite_last_event: &mut u16, // for the lazy leak of V_B
-    theta: u16,                    // θ_B half-activation (the dendrite's threshold entry)
-    soma_potential: &mut i8,
-    soma_threshold: i8,
+    v_s: i16,
+    soma_potentials: &mut [i8],
+    soma_last_events: &mut [u16],
+    soma_thresholds: &[i8],
+    soma_betas: &mut [u8],
     producer: &EventProducer,
 ) {
-    // 1+2. boost this synapse, then leak + integrate the branch voltage. The leak (the ρ term)
-    // now lives inside update_dendrite_activity, selected by the apical compartment (APICAL_DECAY).
-    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
-    synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
-    update_dendrite_activity(
-        s_idx, timestamp, live_end,
-        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
-        dendrite_activity, dendrite_last_event, true,
+    let burst = update_soma_potential(
+        timestamp, neuron_idx,
+        soma_potentials, soma_last_events, soma_thresholds, soma_betas, v_s,
     );
-
-    // 3. graded sigmoidal plateau (instead of a hard threshold → dendritic spike)
-    let plateau = apical_plateau(*dendrite_activity, theta, APICAL_DV_S, APICAL_SLOPE_K);
-
-    // 4. coupling "1a": plateau depolarizes the soma; emit a burst, carry the remainder.
-    let new_v = *soma_potential as i32 + plateau as i32;
-    if soma_threshold > 0 && new_v >= soma_threshold as i32 {
-        let burst = new_v / soma_threshold as i32;
-        *soma_potential = (new_v % soma_threshold as i32) as i8;
-        for _ in 0..burst {
-            producer.push(Event { event_type: SOMATIC_SPIKE, source: neuron_idx as u32, timestamp });
-        }
-    } else {
-        *soma_potential = new_v.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
+    for _ in 0..burst {
+        producer.push(Event::spike(SOMATIC_SPIKE, neuron_idx as u32, timestamp));
     }
 }
 
-// when forward_ap is triggered, 
-pub fn handle_synapse_signal(
-    s_idx: usize,
-    dendrite_idx: usize,
+
+// The soma fired (a SOMATIC_SPIKE). Run BaP weight updates across all of the neuron's synapses
+// using the current burst counter beta, then emit a FORWARD_AP downstream. beta is read-only here:
+// all of its dynamics (lazy decay + burst increment) live in update_soma_potential.
+// synapse slices must already be scoped to this neuron via neuron_synapse_range.
+pub fn handle_somatic_spike(
+    neuron_idx: usize,
     timestamp: u16,
-    live_end: usize,
-    synapse_xs: &[u8],
+    beta: u8,
+    soma_lr: i16,
+    synapse_weights: &mut [i8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
-    synapse_weights: &[i8],
-    dendrite_activity: &mut u16,
-    dendrite_threshold: &u16,
-    dendrite_is_apical: &u8,
     producer: &EventProducer,
 ) {
-    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
-    synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
-
-    let is_apical = *dendrite_is_apical == 1;
-
-    update_dendrite_activity(
-        s_idx, timestamp, live_end,
-        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
-        dendrite_activity, dendrite_last_event, is_apical,
-    );
-
-    // for basal dendrites
-    if !is_apical && *dendrite_activity >= *dendrite_threshold {
-        *dendrite_activity = 0;
-        producer.push(Event { event_type: DENDRITIC_SPIKE, source: dendrite_idx as u32, timestamp });
+    // BaP updates for all synapses of this neuron: w += (beta - H_BETA) * alpha / lr
+    for s_idx in 0..synapse_weights.len() {
+        update_weight(timestamp, beta, soma_lr, s_idx, synapse_alphas, synapse_last_events, synapse_weights);
     }
-
-
+    producer.push(Event::spike(FORWARD_AP, neuron_idx as u32, timestamp));
 }
-
-pub fn handle_soma_signal(
-
-) {
-    
-}
-
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::event::EventQueue;
+    use crate::network::event::{EventQueue, SOMA_SIGNAL};
 
-    // --- handle_somatic_spike ---
-
-    #[test]
-    fn somatic_spike_beta_increments_and_emits_forward_ap() {
-        let queue = EventQueue::new(64);
-        let producer = queue.producer_handle();
-        let mut beta = 5u8;
-        let mut soma_last_event = 100u16;
-        let soma_lr: i16 = 100;
-
-        handle_somatic_spike(
-            42, 100, &mut beta, &mut soma_last_event, &soma_lr,
-            &mut [], &mut [], &mut [],
-            &producer,
-        );
-
-        // elapsed=0, decrements=0, beta=5+1=6
-        assert_eq!(beta, 6);
-        assert_eq!(soma_last_event, 100);
-        let events = queue.drain();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, FORWARD_AP);
-        assert_eq!(events[0].source, 42);
-        assert_eq!(events[0].timestamp, 100);
-    }
+    // --- handle_synapse_signal (basal) ---
 
     #[test]
-    fn somatic_spike_beta_decays_with_elapsed_time() {
-        let queue = EventQueue::new(64);
-        let producer = queue.producer_handle();
-        let mut beta = 10u8;
-        let mut soma_last_event = 0u16;
-        let soma_lr: i16 = 100;
-
-        // elapsed=1000, decrements=1000/500=2, beta=10-2+1=9
-        handle_somatic_spike(
-            0, 1000, &mut beta, &mut soma_last_event, &soma_lr,
-            &mut [], &mut [], &mut [],
-            &producer,
-        );
-
-        assert_eq!(beta, 9);
-    }
-
-    #[test]
-    fn somatic_spike_beta_capped_at_63() {
-        let queue = EventQueue::new(64);
-        let producer = queue.producer_handle();
-        let mut beta = 63u8;
-        let mut soma_last_event = 0u16;
-        let soma_lr: i16 = 100;
-
-        handle_somatic_spike(
-            0, 0, &mut beta, &mut soma_last_event, &soma_lr,
-            &mut [], &mut [], &mut [],
-            &producer,
-        );
-
-        assert_eq!(beta, 63);
-    }
-
-    #[test]
-    fn somatic_spike_updates_synapse_weights() {
-        let queue = EventQueue::new(64);
-        let producer = queue.producer_handle();
-        let mut beta = 5u8;
-        let mut soma_last_event = 100u16;
-        let soma_lr: i16 = 100;
-        let mut weights = [0i8];
-        let mut alphas = [200u8];       // > H_ALPHA=30
-        let mut last_events = [100u16]; // same ts, no decay
-
-        handle_somatic_spike(
-            0, 100, &mut beta, &mut soma_last_event, &soma_lr,
-            &mut weights, &mut alphas, &mut last_events,
-            &producer,
-        );
-
-        // beta becomes 6; burst_term=6-4=2, delta=2*200/100=4
-        assert_eq!(weights[0], 4);
-    }
-
-    // --- handle_dendritic_spike ---
-
-    #[test]
-    fn dendritic_spike_proximal_accumulates_soma_potential_and_boosts_alpha() {
-        let queue = EventQueue::new(64);
-        let producer = queue.producer_handle();
-        let dendrite_constant = 5i8;
-        let mut dendrite_last_event = 0u16;
-        let mut soma_potential = 10i8;
-        let soma_threshold = 100i8;
-        let mut alphas = [50u8]; // > H_ALPHA=30
-        let mut last_events = [0u16];   // timestamp=0 → elapsed=0, no decay before boost
-
-        handle_dendritic_spike(
-            0, 0, &dendrite_constant, &mut dendrite_last_event,
-            &mut soma_potential, &soma_threshold,
-            &mut alphas, &mut last_events,
-            &producer,
-        );
-
-        assert_eq!(soma_potential, 15);   // 10 + 5
-        assert_eq!(alphas[0], 55);        // 50 + branch_constant.unsigned_abs()=5
-        assert_eq!(queue.drain().len(), 0);
-    }
-
-    #[test]
-    fn dendritic_spike_distal_adds_one_to_soma() {
-        let queue = EventQueue::new(64);
-        let producer = queue.producer_handle();
-        let dendrite_constant = -10i8;
-        let mut dendrite_last_event = 0u16;
-        let mut soma_potential = 5i8;
-        let soma_threshold = 100i8;
-
-        handle_dendritic_spike(
-            0, 0, &dendrite_constant, &mut dendrite_last_event,
-            &mut soma_potential, &soma_threshold,
-            &mut [], &mut [],
-            &producer,
-        );
-
-        assert_eq!(soma_potential, 6); // 5 + max(-10, 1) = 5 + 1
-    }
-
-    #[test]
-    fn dendritic_spike_threshold_crossed_emits_somatic_spike_and_resets() {
-        let queue = EventQueue::new(64);
-        let producer = queue.producer_handle();
-        let dendrite_constant = 5i8;
-        let mut dendrite_last_event = 0u16;
-        let mut soma_potential = 95i8;
-        let soma_threshold = 100i8;
-
-        handle_dendritic_spike(
-            7, 200, &dendrite_constant, &mut dendrite_last_event,
-            &mut soma_potential, &soma_threshold,
-            &mut [], &mut [],
-            &producer,
-        );
-
-        // 95 + 5 = 100 >= 100 → spike, reset to 0
-        assert_eq!(soma_potential, 0);
-        let events = queue.drain();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, SOMATIC_SPIKE);
-        assert_eq!(events[0].source, 7);
-        assert_eq!(events[0].timestamp, 200);
-    }
-
-    // --- handle_forward_ap ---
-
-    #[test]
-    fn forward_ap_boosts_alpha_and_accumulates_dendrite_activity() {
+    fn synapse_signal_basal_boosts_alpha_and_integrates_no_fire() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
         let xs = [10u8];
@@ -367,23 +148,21 @@ mod tests {
         let weights = [10i8];
         let mut dendrite_activity = 0u16;
         let mut dendrite_last_event = 0u16;
-        let dendrite_threshold = 1000u16;
 
-        handle_forward_ap(
-            0, 5, 0, xs.len(), &xs, &mut alphas, &mut last_events,
-            &weights, &mut dendrite_activity, &mut dendrite_last_event, &dendrite_threshold,
+        handle_synapse_signal(
+            0, 5, 9, 0, xs.len(),
+            &xs, &mut alphas, &mut last_events, &weights,
+            &mut dendrite_activity, &mut dendrite_last_event, 1000, false,
             &producer,
         );
 
-        // alpha: decayed to 0 (elapsed=0), boosted by ALPHA_BOOST=64
-        assert_eq!(alphas[0], ALPHA_BOOST);
-        // single synapse, gamma=0, delta = 10 * 1 = 10
-        assert_eq!(dendrite_activity, 10);
-        assert_eq!(queue.drain().len(), 0);
+        assert_eq!(alphas[0], ALPHA_BOOST);   // decayed to 0 (elapsed=0), boosted by 64
+        assert_eq!(dendrite_activity, 10);    // gamma=0, delta = 10 * 1
+        assert_eq!(queue.drain().len(), 0);   // below threshold → no event
     }
 
     #[test]
-    fn forward_ap_threshold_crossed_emits_dendritic_spike_and_resets() {
+    fn synapse_signal_basal_threshold_crossed_emits_dendritic_spike() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
         let xs = [10u8];
@@ -392,27 +171,25 @@ mod tests {
         let weights = [10i8];
         let mut dendrite_activity = 995u16;
         let mut dendrite_last_event = 0u16;
-        let dendrite_threshold = 1000u16;
 
-        handle_forward_ap(
-            0, 3, 0, xs.len(), &xs, &mut alphas, &mut last_events,
-            &weights, &mut dendrite_activity, &mut dendrite_last_event, &dendrite_threshold,
+        handle_synapse_signal(
+            0, 3, 9, 0, xs.len(),
+            &xs, &mut alphas, &mut last_events, &weights,
+            &mut dendrite_activity, &mut dendrite_last_event, 1000, false,
             &producer,
         );
 
-        // 995 + 10 = 1005 >= 1000 → spike, reset to 0
-        assert_eq!(dendrite_activity, 0);
+        assert_eq!(dendrite_activity, 0); // 995 + 10 = 1005 >= 1000 → fire + reset
         let events = queue.drain();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, DENDRITIC_SPIKE);
         assert_eq!(events[0].source, 3); // dendrite_idx
-        assert_eq!(events[0].timestamp, 0);
     }
 
-    // --- handle_apical_fb (graded sigmoidal plateau) ---
+    // --- handle_synapse_signal (apical) ---
 
     #[test]
-    fn apical_fb_graded_plateau_drives_soma_burst() {
+    fn synapse_signal_apical_emits_soma_signal_with_plateau() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
         let xs = [10u8];
@@ -422,52 +199,127 @@ mod tests {
         let mut dendrite_activity = 0u16;
         let mut dendrite_last_event = 0u16;
         let theta = 0u16; // V_B above θ_B → upper half of the sigmoid
-        let mut soma_potential = 0i8;
-        let soma_threshold = 20i8;
 
-        // single synapse: gamma=0, V_B = leak(0) + 10. plateau = apical_plateau(10,0,64,9) = 32.
-        // soma: 0 + 32 = 32 >= 20 → burst = 1, remainder = 12.
-        handle_apical_fb(
-            0, 5, 0, xs.len(),
+        // V_B = 0 + 10 = 10; plateau = apical_plateau(10, 0, 64, 9) = 32.
+        handle_synapse_signal(
+            0, 5, 7, 0, xs.len(),
             &xs, &mut alphas, &mut last_events, &weights,
-            &mut dendrite_activity, &mut dendrite_last_event, theta,
-            &mut soma_potential, soma_threshold,
+            &mut dendrite_activity, &mut dendrite_last_event, theta, true,
             &producer,
         );
 
-        assert_eq!(alphas[0], ALPHA_BOOST);
-        assert_eq!(dendrite_activity, 10);
-        assert_eq!(soma_potential, 12);
+        assert_eq!(dendrite_activity, 10); // apical: NOT reset
         let events = queue.drain();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, SOMATIC_SPIKE);
-        assert_eq!(events[0].source, 5);
+        assert_eq!(events[0].event_type, SOMA_SIGNAL);
+        assert_eq!(events[0].source, 7);   // neuron_idx
+        assert_eq!(events[0].payload, 32); // the plateau voltage
+    }
+
+    // --- handle_dendritic_spike ---
+
+    #[test]
+    fn dendritic_spike_proximal_boosts_alpha_and_signals_soma() {
+        let queue = EventQueue::new(64);
+        let producer = queue.producer_handle();
+        let dendrite_constant = 5i8;
+        let mut alphas = [50u8]; // > H_ALPHA=30
+        let mut last_events = [0u16];
+
+        handle_dendritic_spike(
+            8, 0, &dendrite_constant, &mut alphas, &mut last_events, &producer,
+        );
+
+        assert_eq!(alphas[0], 55); // 50 + branch_constant.unsigned_abs()=5
+        let events = queue.drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, SOMA_SIGNAL);
+        assert_eq!(events[0].source, 8);  // neuron_idx
+        assert_eq!(events[0].payload, 5); // max(5, 1)
     }
 
     #[test]
-    fn apical_fb_leaks_branch_voltage_between_events() {
+    fn dendritic_spike_distal_signals_soma_with_one() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
-        let xs = [10u8];
-        let mut alphas = [0u8];
-        let mut last_events = [0u16];
-        let weights = [0i8]; // weight 0 → no new V_B contribution, isolate the leak
-        let mut dendrite_activity = 256u16; // prior branch voltage
-        let mut dendrite_last_event = 0u16;
-        let theta = 0u16;
-        let mut soma_potential = 0i8;
-        let soma_threshold = 100i8;
+        let dendrite_constant = -10i8;
 
-        // elapsed = 4096 = 2^APICAL_DECAY(12) → one half-life → V_B 256 → 128, plus delta(0) = 128
-        handle_apical_fb(
-            0, 1, 4096, xs.len(),
-            &xs, &mut alphas, &mut last_events, &weights,
-            &mut dendrite_activity, &mut dendrite_last_event, theta,
-            &mut soma_potential, soma_threshold,
-            &producer,
+        handle_dendritic_spike(
+            1, 0, &dendrite_constant, &mut [], &mut [], &producer,
         );
 
-        assert_eq!(dendrite_activity, 128); // leaked exactly one half-life
-        assert_eq!(dendrite_last_event, 4096);
+        let events = queue.drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, SOMA_SIGNAL);
+        assert_eq!(events[0].payload, 1); // max(-10, 1)
+    }
+
+    // --- handle_soma_signal ---
+
+    #[test]
+    fn soma_signal_below_threshold_accumulates_no_spike() {
+        let queue = EventQueue::new(64);
+        let producer = queue.producer_handle();
+        let mut potentials = [0i8];
+        let mut last_events = [0u16];
+        let thresholds = [100i8];
+        let mut betas = [0u8];
+
+        handle_soma_signal(0, 0, 10, &mut potentials, &mut last_events, &thresholds, &mut betas, &producer);
+
+        assert_eq!(potentials[0], 10);
+        assert_eq!(queue.drain().len(), 0);
+    }
+
+    #[test]
+    fn soma_signal_burst_emits_one_somatic_spike_per_ap() {
+        let queue = EventQueue::new(64);
+        let producer = queue.producer_handle();
+        let mut potentials = [0i8];
+        let mut last_events = [0u16];
+        let thresholds = [10i8];
+        let mut betas = [0u8];
+
+        // new_v = 35 >= 10 → burst = 3
+        handle_soma_signal(0, 200, 35, &mut potentials, &mut last_events, &thresholds, &mut betas, &producer);
+
+        let events = queue.drain();
+        assert_eq!(events.len(), 3);
+        assert!(events.iter().all(|e| e.event_type == SOMATIC_SPIKE && e.source == 0));
+        assert_eq!(betas[0], 3); // beta reinforced by burst size
+    }
+
+    // --- handle_somatic_spike ---
+
+    #[test]
+    fn somatic_spike_updates_weights_and_emits_forward_ap() {
+        let queue = EventQueue::new(64);
+        let producer = queue.producer_handle();
+        let mut weights = [0i8];
+        let mut alphas = [200u8];       // > H_ALPHA=30
+        let mut last_events = [100u16]; // same ts, no decay
+
+        // beta=6: burst_term=6-4=2, delta=2*200/100=4
+        handle_somatic_spike(0, 100, 6, 100, &mut weights, &mut alphas, &mut last_events, &producer);
+
+        assert_eq!(weights[0], 4);
+        let events = queue.drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, FORWARD_AP);
+        assert_eq!(events[0].source, 0);
+    }
+
+    #[test]
+    fn somatic_spike_no_synapses_still_emits_forward_ap() {
+        let queue = EventQueue::new(64);
+        let producer = queue.producer_handle();
+
+        handle_somatic_spike(42, 100, 6, 100, &mut [], &mut [], &mut [], &producer);
+
+        let events = queue.drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, FORWARD_AP);
+        assert_eq!(events[0].source, 42);
+        assert_eq!(events[0].timestamp, 100);
     }
 }
