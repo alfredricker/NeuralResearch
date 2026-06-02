@@ -1,4 +1,4 @@
-use crate::network::event::event::{SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, SOMA_SIGNAL};
+use crate::network::event::event::{SOMATIC_SPIKE, DENDRITIC_SPIKE, SOMA_SIGNAL, SYNAPSE_SIGNAL};
 use crate::network::event::queue::EventQueue;
 use crate::network::event::handlers::{handle_somatic_spike, handle_dendritic_spike, handle_synapse_signal, handle_soma_signal};
 use crate::network::event::slice::{neuron_synapse_range, dendrite_synapse_range};
@@ -39,14 +39,16 @@ pub fn run_event_loop(
             SOMATIC_SPIKE => {
                 let n = e.source as usize;
                 let (s_start, s_end) = neuron_synapse_range(n, dendrite_offsets, synapse_offsets);
+                let axons = &axon_targets[axon_offsets[n] as usize..axon_offsets[n + 1] as usize];
                 handle_somatic_spike(
-                    n,
                     e.timestamp,
-                    soma_betas[n], // read-only; beta dynamics live in update_soma_potential
+                    e.payload as u16, // burst count, threaded onto each fanned-out SYNAPSE_SIGNAL
+                    soma_betas[n],    // read-only; beta dynamics live in update_soma_potential
                     soma_lrs[n],
                     &mut synapse_weights[s_start..s_end],
                     &mut synapse_alphas[s_start..s_end],
                     &mut synapse_last_events[s_start..s_end],
+                    axons,
                     &producer,
                 );
             }
@@ -76,41 +78,38 @@ pub fn run_event_loop(
                     &producer,
                 );
             }
-            // @TODO: a loop inside the event loop is not ideal -- 
-            //figure out a way to batch these or trigger an async parallel event for each item in the loop
-            // A soma AP fans out along the axon to every target synapse. Each target lands on a
-            // dendrite that is either basal or apical (dendrite_is_apical[d]); handle_synapse_signal
+            // One AP delivery onto a single target synapse (fanned out from a somatic spike). The
+            // target dendrite is basal or apical (dendrite_is_apical[d]); handle_synapse_signal
             // routes accordingly — basal → DENDRITIC_SPIKE, apical → SOMA_SIGNAL. One axon drives
             // both compartments; there is no separate feedback event.
-            FORWARD_AP => {
-                let n = e.source as usize;
-                for &s in &axon_targets[axon_offsets[n] as usize..axon_offsets[n + 1] as usize] {
-                    let s = s as usize;
-                    let d = synapse_to_dendrite(s, synapse_offsets);
-                    let target_n = dendrite_to_neuron[d] as usize;
-                    let (s_start, s_end) = dendrite_synapse_range(d, synapse_offsets);
-                    let local_s = s - s_start;
-                    // live_end is in slice-local coordinates: the slice starts at the dendrite
-                    // base, and live synapses are packed at the front, so live_end == the count.
-                    let live_end = dendrite_live_counts[d] as usize;
-                    let is_apical = dendrite_is_apical[d] == 1;
-                    handle_synapse_signal(
-                        local_s,
-                        d,        // dendrite_idx — source of a basal DENDRITIC_SPIKE
-                        target_n, // neuron_idx — target of an apical SOMA_SIGNAL
-                        e.timestamp,
-                        live_end,
-                        &synapse_xs[s_start..s_end],
-                        &mut synapse_alphas[s_start..s_end],
-                        &mut synapse_last_events[s_start..s_end],
-                        &synapse_weights[s_start..s_end],
-                        &mut dendrite_activities[d],
-                        &mut dendrite_last_events[d],
-                        dendrite_thresholds[d],
-                        is_apical,
-                        &producer,
-                    );
-                }
+            SYNAPSE_SIGNAL => {
+                let s = e.source as usize;
+                let d = synapse_to_dendrite(s, synapse_offsets);
+                let target_n = dendrite_to_neuron[d] as usize;
+                let (s_start, s_end) = dendrite_synapse_range(d, synapse_offsets);
+                let local_s = s - s_start;
+                // live_end is in slice-local coordinates: the slice starts at the dendrite base,
+                // and live synapses are packed at the front, so live_end == the count.
+                let live_end = dendrite_live_counts[d] as usize;
+                let is_apical = dendrite_is_apical[d] == 1;
+                let burst = (e.payload.max(1)) as u16; // presynaptic burst scales the EPSP
+                handle_synapse_signal(
+                    local_s,
+                    d,        // dendrite_idx — source of a basal DENDRITIC_SPIKE
+                    target_n, // neuron_idx — target of an apical SOMA_SIGNAL
+                    e.timestamp,
+                    burst,
+                    live_end,
+                    &synapse_xs[s_start..s_end],
+                    &mut synapse_alphas[s_start..s_end],
+                    &mut synapse_last_events[s_start..s_end],
+                    &synapse_weights[s_start..s_end],
+                    &mut dendrite_activities[d],
+                    &mut dendrite_last_events[d],
+                    dendrite_thresholds[d],
+                    is_apical,
+                    &producer,
+                );
             }
             _ => {}
         }

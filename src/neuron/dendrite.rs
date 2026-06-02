@@ -51,6 +51,7 @@ pub struct Dendrite {
 pub fn update_dendrite_activity(
     s_idx: usize, // which synapse triggered the update (slice-local)
     timestamp: u16,
+    burst: u16,   // presynaptic burst (AP count) — scales the EPSP: ΔV_B = burst · w_i · (1 + γ)
     live_end: usize, // = base + live_count, computed by caller
     synapse_xs: &[u8],
     synapse_alphas: &mut [u8],
@@ -81,9 +82,11 @@ pub fn update_dendrite_activity(
     let elapsed = timestamp.wrapping_sub(*dendrite_last_event);
     *dendrite_last_event = timestamp;
     let decayed = shift_decay(*dendrite_activity, elapsed, k);
-    // (1 + gamma); saturating so a huge gamma can't overflow i16 before the multiply
-    let gain = 1i16.saturating_add(gamma.min(i16::MAX as u16 - 1) as i16);
-    let update_term = (w_i as i16).saturating_mul(gain);
+    // ΔV_B = burst · w_i · (1 + gamma); computed in i32 then clamped to i16 (the product can far
+    // exceed i16: w_i up to ±127, (1+gamma) up to ~65536, burst up to 127).
+    let gain = 1i32 + gamma as i32;
+    let update_term = ((w_i as i32) * gain * burst as i32)
+        .clamp(i16::MIN as i32, i16::MAX as i32) as i16;
     *dendrite_activity = decayed.saturating_add_signed(update_term);
 
     if is_apical {
@@ -173,7 +176,7 @@ mod tests {
         let mut last_events = [0u16];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
+        update_dendrite_activity(0, 0, 1, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 7);
     }
 
@@ -186,7 +189,7 @@ mod tests {
         let mut last_events = [0u16; 3];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(2, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
+        update_dendrite_activity(2, 0, 1, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 3); // 3 * (1 + 0)
     }
 
@@ -202,7 +205,7 @@ mod tests {
         let mut last_events = [0u16; 2];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
+        update_dendrite_activity(0, 0, 1, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 1700);
     }
 
@@ -218,7 +221,7 @@ mod tests {
         let mut last_events = [0u16; 3];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 0, 2, &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
+        update_dendrite_activity(0, 0, 1, 2, &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 1700); // dead slot 2 ignored despite alpha=255
     }
 
@@ -232,7 +235,7 @@ mod tests {
         let mut last_events = [0u16];
         let mut activity = 1024u16;
         let mut d_last = 0u16;
-        update_dendrite_activity(0, 1024, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
+        update_dendrite_activity(0, 1024, 1, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
         assert_eq!(activity, 522);
         assert_eq!(d_last, 1024);
     }
@@ -246,7 +249,7 @@ mod tests {
         let mut last_events = [0u16];
         let mut activity = 95u16;
         let mut d_last = 0u16;
-        let out = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, 100, false);
+        let out = update_dendrite_activity(0, 0, 1, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, 100, false);
         assert!(matches!(out, DendriteOutput::Basal { fired: true }));
         assert_eq!(activity, 0); // reset after firing
     }
@@ -261,12 +264,25 @@ mod tests {
         let mut last_events = [0u16];
         let mut activity = 0u16;
         let mut d_last = 0u16;
-        let out = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, 0, true);
+        let out = update_dendrite_activity(0, 0, 1, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, 0, true);
         match out {
             DendriteOutput::Apical { plateau } => assert_eq!(plateau, 32),
             _ => panic!("expected apical output"),
         }
         assert_eq!(activity, 10); // not reset
+    }
+
+    #[test]
+    fn update_dendrite_activity_burst_scales_epsp() {
+        // burst=3, single synapse w=10, gamma=0 → ΔV_B = 3 · 10 · (1+0) = 30.
+        let xs = [10u8];
+        let mut alphas = [0u8];
+        let weights = [10i8];
+        let mut last_events = [0u16];
+        let mut activity = 0u16;
+        let mut d_last = 0u16;
+        update_dendrite_activity(0, 0, 3, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, u16::MAX, false);
+        assert_eq!(activity, 30);
     }
 
     // --- apical_plateau (sigmoidal transfer; dv_s=64, k=9, θ_B=1000) ---

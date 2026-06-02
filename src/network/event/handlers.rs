@@ -1,4 +1,4 @@
-use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, EventProducer};
+use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, SYNAPSE_SIGNAL, EventProducer};
 use crate::constants::{H_ALPHA, ALPHA_BOOST};
 use crate::neuron::synapse::{update_weight, update_synapse_alpha};
 use crate::neuron::dendrite::{update_dendrite_activity, DendriteOutput};
@@ -10,18 +10,22 @@ use crate::neuron::soma::update_soma_potential;
 // primitive's verdict into emitted events. No physics lives here.
 //
 // Event flow:
-//   FORWARD_AP      ─► handle_synapse_signal  ─► DENDRITIC_SPIKE (basal) | SOMA_SIGNAL (apical)
+//   SOMA_SIGNAL     ─► handle_soma_signal     ─► SOMATIC_SPIKE (payload = burst)
+//   SOMATIC_SPIKE   ─► handle_somatic_spike   ─► BaP sweep + one SYNAPSE_SIGNAL per axon target
+//   SYNAPSE_SIGNAL  ─► handle_synapse_signal  ─► DENDRITIC_SPIKE (basal) | SOMA_SIGNAL (apical)
 //   DENDRITIC_SPIKE ─► handle_dendritic_spike ─► SOMA_SIGNAL
-//   SOMA_SIGNAL     ─► handle_soma_signal     ─► SOMATIC_SPIKE × burst
-//   SOMATIC_SPIKE   ─► handle_somatic_spike   ─► FORWARD_AP
-// A FORWARD_AP fans out to all of a neuron's axon targets; each target dendrite is basal or apical
-// (dendrite_is_apical), so one axon drives both compartments — there is no separate feedback event.
+//
+// A somatic spike fans out to all of a neuron's axon targets as independent SYNAPSE_SIGNAL events
+// (one queued AP delivery per target synapse — cheap to enqueue, parallelizable to drain). Each
+// target dendrite is basal or apical (dendrite_is_apical), so one axon drives both compartments;
+// there is no separate forward-AP or feedback event. The burst count rides the payload the whole
+// way (SOMATIC_SPIKE → SYNAPSE_SIGNAL) and scales the EPSP at the receiving dendrite.
 // ============================================================================================
 
 
-// A synapse receives an action potential from an upstream axon. The target dendrite is basal or
-// apical (is_apical, from dendrite_is_apical[d]). Boost the receiving synapse, integrate its parent
-// dendrite, and route the dendrite's verdict onward:
+// A SYNAPSE_SIGNAL: one upstream AP delivery landing on this synapse. The target dendrite is basal
+// or apical (is_apical, from dendrite_is_apical[d]). Boost the receiving synapse, integrate its
+// parent dendrite (the EPSP scaled by the presynaptic burst), and route the verdict onward:
 //   basal  → DENDRITIC_SPIKE, if the branch crossed threshold and fired
 //   apical → SOMA_SIGNAL, carrying the graded plateau depolarization
 // synapse slices must already be scoped to this dendrite via dendrite_synapse_range.
@@ -30,6 +34,7 @@ pub fn handle_synapse_signal(
     dendrite_idx: usize,
     neuron_idx: usize,
     timestamp: u16,
+    burst: u16, // presynaptic burst (AP count) — scales the EPSP in update_dendrite_activity
     live_end: usize,
     synapse_xs: &[u8],
     synapse_alphas: &mut [u8],
@@ -45,7 +50,7 @@ pub fn handle_synapse_signal(
     synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
 
     match update_dendrite_activity(
-        s_idx, timestamp, live_end,
+        s_idx, timestamp, burst, live_end,
         synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
         dendrite_activity, dendrite_last_event, dendrite_threshold, is_apical,
     ) {
@@ -88,9 +93,8 @@ pub fn handle_dendritic_spike(
 
 
 // A voltage delta arrives at the soma (from a dendritic spike or an apical plateau). Integrate it
-// through the soma's state machine; if it bursts, emit one SOMATIC_SPIKE per AP in the burst.
-// NOTE: a burst of N emits N SOMATIC_SPIKEs (preserving the prior per-AP fan-out — each drives its
-// own FORWARD_AP and BaP sweep). Revisit if burst should instead be a single event + multiplier.
+// through the soma's state machine; if it bursts, emit a single SOMATIC_SPIKE carrying the burst
+// count as its payload (downstream scales by it, rather than replaying N identical events).
 pub fn handle_soma_signal(
     neuron_idx: usize,
     timestamp: u16,
@@ -105,31 +109,39 @@ pub fn handle_soma_signal(
         timestamp, neuron_idx,
         soma_potentials, soma_last_events, soma_thresholds, soma_betas, v_s,
     );
-    for _ in 0..burst {
-        producer.push(Event::spike(SOMATIC_SPIKE, neuron_idx as u32, timestamp));
+    if burst > 0 {
+        producer.push(Event::with_payload(SOMATIC_SPIKE, neuron_idx as u32, timestamp, burst as i16));
     }
 }
 
 
-// The soma fired (a SOMATIC_SPIKE). Run BaP weight updates across all of the neuron's synapses
-// using the current burst counter beta, then emit a FORWARD_AP downstream. beta is read-only here:
-// all of its dynamics (lazy decay + burst increment) live in update_soma_potential.
-// synapse slices must already be scoped to this neuron via neuron_synapse_range.
+// The soma fired (a SOMATIC_SPIKE). Two consequences:
+//   1. BaP weight updates across the neuron's OWN afferent synapses (beta read-only; all of beta's
+//      dynamics live in update_soma_potential). The update is beta-driven — the burst enters only
+//      through beta, so it is not applied again here.
+//   2. Axonal output: enqueue one SYNAPSE_SIGNAL per downstream target synapse, carrying the burst.
+//      This is a push-only fan-out — the per-synapse work happens later, one independent event each.
+// The neuron's own synapse slices must be scoped via neuron_synapse_range; axon_targets is this
+// neuron's slice of the axon CSR (global indices into the downstream synapse arrays).
 pub fn handle_somatic_spike(
-    neuron_idx: usize,
     timestamp: u16,
+    burst: u16,
     beta: u8,
     soma_lr: i16,
     synapse_weights: &mut [i8],
     synapse_alphas: &mut [u8],
     synapse_last_events: &mut [u16],
+    axon_targets: &[u32],
     producer: &EventProducer,
 ) {
-    // BaP updates for all synapses of this neuron: w += (beta - H_BETA) * alpha / lr
+    // 1. BaP: w += (beta - H_BETA) * alpha / lr, for each of this neuron's synapses
     for s_idx in 0..synapse_weights.len() {
         update_weight(timestamp, beta, soma_lr, s_idx, synapse_alphas, synapse_last_events, synapse_weights);
     }
-    producer.push(Event::spike(FORWARD_AP, neuron_idx as u32, timestamp));
+    // 2. fan out the axonal AP to every target synapse as an independent SYNAPSE_SIGNAL
+    for &s in axon_targets {
+        producer.push(Event::with_payload(SYNAPSE_SIGNAL, s, timestamp, burst as i16));
+    }
 }
 
 
@@ -152,7 +164,7 @@ mod tests {
         let mut dendrite_last_event = 0u16;
 
         handle_synapse_signal(
-            0, 5, 9, 0, xs.len(),
+            0, 5, 9, 0, 1, xs.len(),
             &xs, &mut alphas, &mut last_events, &weights,
             &mut dendrite_activity, &mut dendrite_last_event, 1000, false,
             &producer,
@@ -175,7 +187,7 @@ mod tests {
         let mut dendrite_last_event = 0u16;
 
         handle_synapse_signal(
-            0, 3, 9, 0, xs.len(),
+            0, 3, 9, 0, 1, xs.len(),
             &xs, &mut alphas, &mut last_events, &weights,
             &mut dendrite_activity, &mut dendrite_last_event, 1000, false,
             &producer,
@@ -204,7 +216,7 @@ mod tests {
 
         // V_B = 0 + 10 = 10; plateau = apical_plateau(10, 0, 64, 9) = 32.
         handle_synapse_signal(
-            0, 5, 7, 0, xs.len(),
+            0, 5, 7, 0, 1, xs.len(),
             &xs, &mut alphas, &mut last_events, &weights,
             &mut dendrite_activity, &mut dendrite_last_event, theta, true,
             &producer,
@@ -274,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn soma_signal_burst_emits_one_somatic_spike_per_ap() {
+    fn soma_signal_burst_emits_single_spike_carrying_count() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
         let mut potentials = [0i8];
@@ -282,46 +294,52 @@ mod tests {
         let thresholds = [10i8];
         let mut betas = [0u8];
 
-        // new_v = 35 >= 10 → burst = 3
+        // new_v = 35 >= 10 → burst = 3 → one SOMATIC_SPIKE with payload 3
         handle_soma_signal(0, 200, 35, &mut potentials, &mut last_events, &thresholds, &mut betas, &producer);
 
         let events = queue.drain();
-        assert_eq!(events.len(), 3);
-        assert!(events.iter().all(|e| e.event_type == SOMATIC_SPIKE && e.source == 0));
-        assert_eq!(betas[0], 3); // beta reinforced by burst size
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, SOMATIC_SPIKE);
+        assert_eq!(events[0].source, 0);
+        assert_eq!(events[0].payload, 3); // burst count rides the payload
+        assert_eq!(betas[0], 3);          // beta reinforced by burst size
     }
 
     // --- handle_somatic_spike ---
 
     #[test]
-    fn somatic_spike_updates_weights_and_emits_forward_ap() {
+    fn somatic_spike_updates_weights_and_fans_out_synapse_signals() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
         let mut weights = [0i8];
         let mut alphas = [200u8];       // > H_ALPHA=30
         let mut last_events = [100u16]; // same ts, no decay
+        let axon_targets = [7u32, 9];   // two downstream target synapses
 
-        // beta=6: burst_term=6-4=2, delta=2*200/100=4
-        handle_somatic_spike(0, 100, 6, 100, &mut weights, &mut alphas, &mut last_events, &producer);
+        // beta=6: burst_term=6-4=2, delta=2*200/100=4 (burst does NOT scale BaP)
+        handle_somatic_spike(100, 1, 6, 100, &mut weights, &mut alphas, &mut last_events, &axon_targets, &producer);
 
         assert_eq!(weights[0], 4);
         let events = queue.drain();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, FORWARD_AP);
-        assert_eq!(events[0].source, 0);
+        assert_eq!(events.len(), 2); // one SYNAPSE_SIGNAL per target
+        assert!(events.iter().all(|e| e.event_type == SYNAPSE_SIGNAL));
+        assert_eq!(events[0].source, 7);
+        assert_eq!(events[1].source, 9);
     }
 
     #[test]
-    fn somatic_spike_no_synapses_still_emits_forward_ap() {
+    fn somatic_spike_fan_out_carries_burst_payload() {
         let queue = EventQueue::new(64);
         let producer = queue.producer_handle();
 
-        handle_somatic_spike(42, 100, 6, 100, &mut [], &mut [], &mut [], &producer);
+        // no afferent synapses; burst=5 should ride each fanned-out SYNAPSE_SIGNAL
+        handle_somatic_spike(100, 5, 6, 100, &mut [], &mut [], &mut [], &[42u32], &producer);
 
         let events = queue.drain();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, FORWARD_AP);
-        assert_eq!(events[0].source, 42);
+        assert_eq!(events[0].event_type, SYNAPSE_SIGNAL);
+        assert_eq!(events[0].source, 42);   // target synapse index
+        assert_eq!(events[0].payload, 5);   // burst
         assert_eq!(events[0].timestamp, 100);
     }
 }
