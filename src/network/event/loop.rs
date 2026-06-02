@@ -1,4 +1,4 @@
-use crate::network::event::event::{SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, APICAL_FB, SOMA_SIGNAL};
+use crate::network::event::event::{SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, SOMA_SIGNAL};
 use crate::network::event::queue::EventQueue;
 use crate::network::event::handlers::{handle_somatic_spike, handle_dendritic_spike, handle_synapse_signal, handle_soma_signal};
 use crate::network::event::slice::{neuron_synapse_range, dendrite_synapse_range};
@@ -78,13 +78,12 @@ pub fn run_event_loop(
             }
             // @TODO: a loop inside the event loop is not ideal -- 
             //figure out a way to batch these or trigger an async parallel event for each item in the loop
-            // FORWARD_AP (feedforward, basal) and APICAL_FB (top-down, apical) both deliver a synapse
-            // signal; handle_synapse_signal branches on is_apical. NOTE: until a separate apical
-            // synapse compartment + apical axon CSR exist, APICAL_FB reuses the feedforward
-            // axon_targets. See docs/09-gaps-and-open-questions.md.
-            FORWARD_AP | APICAL_FB => {
+            // A soma AP fans out along the axon to every target synapse. Each target lands on a
+            // dendrite that is either basal or apical (dendrite_is_apical[d]); handle_synapse_signal
+            // routes accordingly — basal → DENDRITIC_SPIKE, apical → SOMA_SIGNAL. One axon drives
+            // both compartments; there is no separate feedback event.
+            FORWARD_AP => {
                 let n = e.source as usize;
-                let is_apical = e.event_type == APICAL_FB;
                 for &s in &axon_targets[axon_offsets[n] as usize..axon_offsets[n + 1] as usize] {
                     let s = s as usize;
                     let d = synapse_to_dendrite(s, synapse_offsets);
@@ -94,6 +93,7 @@ pub fn run_event_loop(
                     // live_end is in slice-local coordinates: the slice starts at the dendrite
                     // base, and live synapses are packed at the front, so live_end == the count.
                     let live_end = dendrite_live_counts[d] as usize;
+                    let is_apical = dendrite_is_apical[d] == 1;
                     handle_synapse_signal(
                         local_s,
                         d,        // dendrite_idx — source of a basal DENDRITIC_SPIKE

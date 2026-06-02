@@ -10,15 +10,17 @@ use crate::neuron::soma::update_soma_potential;
 // primitive's verdict into emitted events. No physics lives here.
 //
 // Event flow:
-//   FORWARD_AP / APICAL_FB  ─► handle_synapse_signal  ─► DENDRITIC_SPIKE (basal) | SOMA_SIGNAL (apical)
-//   DENDRITIC_SPIKE         ─► handle_dendritic_spike ─► SOMA_SIGNAL
-//   SOMA_SIGNAL             ─► handle_soma_signal     ─► SOMATIC_SPIKE × burst
-//   SOMATIC_SPIKE           ─► handle_somatic_spike   ─► FORWARD_AP
+//   FORWARD_AP      ─► handle_synapse_signal  ─► DENDRITIC_SPIKE (basal) | SOMA_SIGNAL (apical)
+//   DENDRITIC_SPIKE ─► handle_dendritic_spike ─► SOMA_SIGNAL
+//   SOMA_SIGNAL     ─► handle_soma_signal     ─► SOMATIC_SPIKE × burst
+//   SOMATIC_SPIKE   ─► handle_somatic_spike   ─► FORWARD_AP
+// A FORWARD_AP fans out to all of a neuron's axon targets; each target dendrite is basal or apical
+// (dendrite_is_apical), so one axon drives both compartments — there is no separate feedback event.
 // ============================================================================================
 
 
-// A synapse receives an external action potential: feedforward (FORWARD_AP, basal dendrite) or
-// top-down (APICAL_FB, apical dendrite). Boost the receiving synapse, integrate its parent
+// A synapse receives an action potential from an upstream axon. The target dendrite is basal or
+// apical (is_apical, from dendrite_is_apical[d]). Boost the receiving synapse, integrate its parent
 // dendrite, and route the dendrite's verdict onward:
 //   basal  → DENDRITIC_SPIKE, if the branch crossed threshold and fired
 //   apical → SOMA_SIGNAL, carrying the graded plateau depolarization

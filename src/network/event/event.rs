@@ -1,8 +1,7 @@
 pub const SOMATIC_SPIKE:   u8 = 0; // source = neuron_idx,   payload unused
 pub const DENDRITIC_SPIKE: u8 = 1; // source = dendrite_idx, payload unused
-pub const FORWARD_AP:      u8 = 2; // source = neuron_idx,   payload unused
-pub const APICAL_FB:       u8 = 3; // source = neuron_idx,   payload unused
-pub const SOMA_SIGNAL:     u8 = 4; // source = neuron_idx,   payload = v_s (voltage delta to integrate)
+pub const FORWARD_AP:      u8 = 2; // source = neuron_idx,   payload unused (fans out to all axon targets, basal AND apical)
+pub const SOMA_SIGNAL:     u8 = 3; // source = neuron_idx,   payload = v_s (voltage delta to integrate)
 
 pub struct Event {
     pub event_type: u8,  // not an enum because buffer is shared with gpu kernels
