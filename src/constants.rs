@@ -1,8 +1,15 @@
 pub const T_BETA: u16 = 500; // number of ticks elapse to subtract 1 from beta
 pub const H_ALPHA: u8 = 30; // minimum activity of a synapse to enact weight updates
 pub const H_BETA: i16 = 4; // i16 to avoid conversions when calculating delta_weight
+
+// decay constants for the bit shift decay function
 pub const ALPHA_DECAY: u8 = 8; // alpha decay term. Halves every 2^8 = 256 ticks, so active synapses can maintain high alpha for hundreds of ticks after a spike.
 pub const X_DECAY: u8 = 4; // x decay term for dendritic integration. Halves every 2^4 = 16 x units
+pub const BASAL_DECAY: u8 = 10; // basal dendrite voltage decay. Halves every 2^10 = 1024 ticks.
+pub const APICAL_DECAY: u8 = 12; // apical dendrite voltage decay. Halves every 2^12 = 4096 ticks.
+pub const SOMATIC_DECAY: u8 = 15; // soma voltage decay. Halves every 2^15 = 32768 ticks.
+
+pub const SOMA_V_RESET: i8 = -32; // reset potential for the soma after a spike; also the minimum potential it can take
 
 // MINIMUM SYNAPTIC LEARNING RATE
 // burst_term_max = 2^6-5, alpha_max = 2^8 - 1
@@ -22,4 +29,3 @@ pub const SYNAPSE_SLOTS_PER_DENDRITE: usize = u8::MAX as usize;
 // VALUES UNTUNED (placeholders, like H_BETA) — calibrate once the feedback path runs.
 pub const APICAL_DV_S: i16 = 64; // δV_S: max plateau depolarization delivered to the soma
 pub const APICAL_SLOPE_K: u8 = 9; // sigmoid slope; κ = ln2 / 2^k. D halves every 2^k of |V_B − θ_B|
-pub const APICAL_LEAK_K: u8 = 8; // apical branch-voltage (V_B) leak half-life = 2^k ticks

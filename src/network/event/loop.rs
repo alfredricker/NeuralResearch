@@ -17,6 +17,7 @@ pub fn run_event_loop(
     dendrite_last_events: &mut [u16],
     dendrite_activities: &mut [u16],
     dendrite_thresholds: &[u16],
+    dendrite_is_apical: &[u8],
     dendrite_live_counts: &[u8], // number of live (bound) synapses per dendrite, packed at front of block
     dendrite_offsets: &[u32],
     dendrite_to_neuron: &[u32],
@@ -88,6 +89,7 @@ pub fn run_event_loop(
                         &mut synapse_last_events[s_start..s_end],
                         &synapse_weights[s_start..s_end],
                         &mut dendrite_activities[d],
+                        &mut dendrite_last_events[d],
                         &dendrite_thresholds[d],
                         &producer,
                     );

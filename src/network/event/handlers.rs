@@ -1,6 +1,5 @@
 use crate::network::event::{Event, SOMATIC_SPIKE, DENDRITIC_SPIKE, FORWARD_AP, EventProducer};
-use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST, APICAL_DV_S, APICAL_SLOPE_K, APICAL_LEAK_K};
-use crate::math::decay::shift_decay;
+use crate::constants::{T_BETA, H_ALPHA, ALPHA_BOOST, APICAL_DV_S, APICAL_SLOPE_K};
 use crate::neuron::synapse::{update_weight, update_synapse_alpha};
 use crate::neuron::dendrite::{update_dendrite_activity, apical_plateau};
 
@@ -26,6 +25,8 @@ pub fn handle_somatic_spike(
 
     let lr = *soma_lr;
 
+    // BaP updates for all synapses of this neuron
+    // w = w + (beta - H_ALPHA) * alpha / 100 * lr
     for s_idx in 0..synapse_weights.len() {
         update_weight(timestamp, beta, lr, s_idx, synapse_alphas, synapse_last_events, synapse_weights);
     }
@@ -83,18 +84,19 @@ pub fn handle_forward_ap(
     synapse_last_events: &mut [u16],
     synapse_weights: &[i8],
     dendrite_activity: &mut u16,
+    dendrite_last_event: &mut u16,
     dendrite_threshold: &u16,
     producer: &EventProducer,
 ) {
     let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
     synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
 
-    let delta = update_dendrite_activity(
+    // basal: leak + integrate in place (false = basal compartment → BASAL_DECAY)
+    update_dendrite_activity(
         s_idx, timestamp, live_end,
-        synapse_xs, synapse_alphas,
-        synapse_weights, synapse_last_events,
+        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
+        dendrite_activity, dendrite_last_event, false,
     );
-    *dendrite_activity = dendrite_activity.saturating_add_signed(delta);
 
     if *dendrite_activity >= *dendrite_threshold {
         *dendrite_activity = 0;
@@ -128,19 +130,15 @@ pub fn handle_apical_fb(
     soma_threshold: i8,
     producer: &EventProducer,
 ) {
-    // 1. lazy leak of the apical branch voltage since the last apical event
-    let elapsed = timestamp.wrapping_sub(*dendrite_last_event);
-    *dendrite_activity = shift_decay(*dendrite_activity, elapsed, APICAL_LEAK_K);
-    *dendrite_last_event = timestamp;
-
-    // 2. boost this synapse and integrate the branch voltage (same gamma machinery as basal)
+    // 1+2. boost this synapse, then leak + integrate the branch voltage. The leak (the ρ term)
+    // now lives inside update_dendrite_activity, selected by the apical compartment (APICAL_DECAY).
     let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
     synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
-    let delta = update_dendrite_activity(
+    update_dendrite_activity(
         s_idx, timestamp, live_end,
         synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
+        dendrite_activity, dendrite_last_event, true,
     );
-    *dendrite_activity = dendrite_activity.saturating_add_signed(delta);
 
     // 3. graded sigmoidal plateau (instead of a hard threshold → dendritic spike)
     let plateau = apical_plateau(*dendrite_activity, theta, APICAL_DV_S, APICAL_SLOPE_K);
@@ -156,6 +154,47 @@ pub fn handle_apical_fb(
     } else {
         *soma_potential = new_v.clamp(i8::MIN as i32, i8::MAX as i32) as i8;
     }
+}
+
+// when forward_ap is triggered, 
+pub fn handle_synapse_signal(
+    s_idx: usize,
+    dendrite_idx: usize,
+    timestamp: u16,
+    live_end: usize,
+    synapse_xs: &[u8],
+    synapse_alphas: &mut [u8],
+    synapse_last_events: &mut [u16],
+    synapse_weights: &[i8],
+    dendrite_activity: &mut u16,
+    dendrite_threshold: &u16,
+    dendrite_is_apical: &u8,
+    producer: &EventProducer,
+) {
+    let alpha = update_synapse_alpha(s_idx, timestamp, synapse_alphas, synapse_last_events);
+    synapse_alphas[s_idx] = alpha.saturating_add(ALPHA_BOOST);
+
+    let is_apical = *dendrite_is_apical == 1;
+
+    update_dendrite_activity(
+        s_idx, timestamp, live_end,
+        synapse_xs, synapse_alphas, synapse_weights, synapse_last_events,
+        dendrite_activity, dendrite_last_event, is_apical,
+    );
+
+    // for basal dendrites
+    if !is_apical && *dendrite_activity >= *dendrite_threshold {
+        *dendrite_activity = 0;
+        producer.push(Event { event_type: DENDRITIC_SPIKE, source: dendrite_idx as u32, timestamp });
+    }
+
+
+}
+
+pub fn handle_soma_signal(
+
+) {
+    
 }
 
 
@@ -327,11 +366,12 @@ mod tests {
         let mut last_events = [0u16];
         let weights = [10i8];
         let mut dendrite_activity = 0u16;
+        let mut dendrite_last_event = 0u16;
         let dendrite_threshold = 1000u16;
 
         handle_forward_ap(
             0, 5, 0, xs.len(), &xs, &mut alphas, &mut last_events,
-            &weights, &mut dendrite_activity, &dendrite_threshold,
+            &weights, &mut dendrite_activity, &mut dendrite_last_event, &dendrite_threshold,
             &producer,
         );
 
@@ -351,11 +391,12 @@ mod tests {
         let mut last_events = [0u16];
         let weights = [10i8];
         let mut dendrite_activity = 995u16;
+        let mut dendrite_last_event = 0u16;
         let dendrite_threshold = 1000u16;
 
         handle_forward_ap(
             0, 3, 0, xs.len(), &xs, &mut alphas, &mut last_events,
-            &weights, &mut dendrite_activity, &dendrite_threshold,
+            &weights, &mut dendrite_activity, &mut dendrite_last_event, &dendrite_threshold,
             &producer,
         );
 
@@ -417,9 +458,9 @@ mod tests {
         let mut soma_potential = 0i8;
         let soma_threshold = 100i8;
 
-        // elapsed = 256 = 2^APICAL_LEAK_K(8) → one half-life → V_B 256 → 128, plus delta(0) = 128
+        // elapsed = 4096 = 2^APICAL_DECAY(12) → one half-life → V_B 256 → 128, plus delta(0) = 128
         handle_apical_fb(
-            0, 1, 256, xs.len(),
+            0, 1, 4096, xs.len(),
             &xs, &mut alphas, &mut last_events, &weights,
             &mut dendrite_activity, &mut dendrite_last_event, theta,
             &mut soma_potential, soma_threshold,
@@ -427,6 +468,6 @@ mod tests {
         );
 
         assert_eq!(dendrite_activity, 128); // leaked exactly one half-life
-        assert_eq!(dendrite_last_event, 256);
+        assert_eq!(dendrite_last_event, 4096);
     }
 }

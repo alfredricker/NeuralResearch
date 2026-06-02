@@ -1,4 +1,3 @@
-use crate::network::build;
 use crate::neuron::population::Population;
 use crate::network::topology::conn::{Connection, ConnRule};
 use crate::neuron::dendrite::Compartment;
@@ -26,10 +25,6 @@ impl NetworkBuilder {
     pub fn connect(&mut self, from: u32, to: u32, c: Compartment, rule: ConnRule) {
         self.connections.push(Connection {from, to, compartment: c, rule});
     }
-}
-
-pub enum BuildError {
-
 }
 
 pub fn build_network<R: Rng + RngExt>(builder: NetworkBuilder, rng: &mut R) -> Network {
@@ -76,6 +71,7 @@ pub fn build_network<R: Rng + RngExt>(builder: NetworkBuilder, rng: &mut R) -> N
         let mut edges = Vec::new();
         c.rule.apply(&src, &dst, rng, &mut edges).expect("connection rule failed");
 
+        // convert connection apical enum to u8 for comparison with dendrites.dendrite_is_apical;
         let want_apical = matches!(c.compartment, Compartment::Apical) as u8;
         for (s, d) in edges {
             // find the first free synapse slot on a matching-compartment dendrite of d

@@ -29,9 +29,21 @@ pub fn shift_decay_u8(v: u8, t: u16, k: u8) -> u8 {
     shift_decay(v as u16, t, k) as u8
 }
 
+pub fn shift_decay_i8(v: i8, t: u16, k: u8) -> i8 {
+    let sign = if v < 0 { -1 } else { 1 };
+    let abs_v = v.abs() as u16;
+    let decayed = shift_decay(abs_v, t, k);
+    (decayed as i16 * sign) as i8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shift_decay_no_elapsed_unchanged() {
+        assert_eq!(shift_decay(1000, 0, 4), 1000);
+    }
 
     #[test]
     fn shift_decay_u8_no_elapsed_unchanged() {
@@ -53,6 +65,12 @@ mod tests {
     fn shift_decay_u8_sixteen_half_lives_returns_zero() {
         // 16+ half-lives (16 * 256 = 4096) → shifts >= 16, returns 0
         assert_eq!(shift_decay_u8(255, 4096, 8), 0);
+    }
+
+    #[test]
+    fn shift_decay_i8_no_elapsed_unchanged() {
+        assert_eq!(shift_decay_i8(100, 0, 4), 100);
+        assert_eq!(shift_decay_i8(-100, 0, 4), -100);
     }
 
     #[test]

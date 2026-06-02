@@ -1,4 +1,4 @@
-use crate::constants::X_DECAY;
+use crate::constants::{X_DECAY, BASAL_DECAY, APICAL_DECAY};
 use crate::math::decay::{shift_decay, shift_decay_u8};
 use crate::neuron::synapse::update_synapse_alpha;
 
@@ -27,15 +27,22 @@ pub struct Dendrite {
 /// where gamma is the sum of alpha times an exponential decay of their distance param x
 /// for only x_j > x_i (synapses higher along the dendrite have more influence on the soma)
 /// this allows for ordered synaptic integration
+/// The synapse arrays are slices (the gamma reduction loops over j > s_idx — the GPU-strided
+/// read that justifies the slice). The dendrite-level state is a single touched element, so the
+/// caller hands single refs already scoped to this dendrite. `is_apical` picks the leak constant;
+/// each caller knows its compartment statically.
 pub fn update_dendrite_activity(
-    s_idx: usize, // which synapse triggered the update
+    s_idx: usize, // which synapse triggered the update (slice-local)
     timestamp: u16,
     live_end: usize, // = base + live_count, computed by caller
     synapse_xs: &[u8],
     synapse_alphas: &mut [u8],
     synapse_weights: &[i8],
     synapse_last_events: &mut [u16],
-) -> i16 {
+    dendrite_activity: &mut u16,
+    dendrite_last_event: &mut u16,
+    is_apical: bool,
+) {
     let x_i = synapse_xs[s_idx];
     let w_i = synapse_weights[s_idx];
 
@@ -50,8 +57,16 @@ pub fn update_dendrite_activity(
         // shift_decay_u8(alpha_j, dx, X_DECAY) ≈ alpha_j * exp(-dx / 2^X_DECAY)
         gamma = gamma.saturating_add(shift_decay_u8(alpha_j, dx as u16, X_DECAY) as u16);
     }
-
-    (w_i as i16).saturating_mul(1 + gamma.min(i16::MAX as u16) as i16)
+    // determine decay constant based on compartment
+    let k = if is_apical { APICAL_DECAY } else { BASAL_DECAY };
+    // decay (leak) the existing branch voltage since the last event, then add the new delta
+    let elapsed = timestamp.wrapping_sub(*dendrite_last_event);
+    *dendrite_last_event = timestamp;
+    let decayed = shift_decay(*dendrite_activity, elapsed, k);
+    // (1 + gamma); saturating so a huge gamma can't overflow i16 before the multiply
+    let gain = 1i16.saturating_add(gamma.min(i16::MAX as u16 - 1) as i16);
+    let update_term = (w_i as i16).saturating_mul(gain);
+    *dendrite_activity = decayed.saturating_add_signed(update_term);
 }
 
 /// Apical dendritic transfer function (Payeur et al. 2021), adapted to the branch formalism:
@@ -74,7 +89,8 @@ pub fn apical_plateau(v_b: u16, theta: u16, dv_s: i16, k: u8) -> i16 {
     } else {
         dv * d / (UNIT + d) // lower half: σ < 1/2  → output ∈ [0, δV_S/2]
     };
-    out as i16
+    // set ceiling of i16::MAX - (i8::MAX + 1) to avoid overflow when this is added to the soma potential in update_soma_potential
+    out.min(i16::MAX as i32 - (i8::MAX as i32 + 1)) as i16
 }
 
 // binary search to find the dendrite index for a given synapse index
@@ -121,13 +137,15 @@ mod tests {
 
     #[test]
     fn update_dendrite_activity_single_synapse_no_gamma() {
-        // single synapse: gamma=0, delta = w_i * 1 = w_i
+        // single synapse: gamma=0, delta = w_i * 1 = w_i. elapsed=0 → no leak, so activity == delta.
         let xs = [10u8];
         let mut alphas = [200u8];
         let weights = [7i8];
         let mut last_events = [0u16];
-        let delta = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events);
-        assert_eq!(delta, 7);
+        let mut activity = 0u16;
+        let mut d_last = 0u16;
+        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        assert_eq!(activity, 7);
     }
 
     #[test]
@@ -137,8 +155,10 @@ mod tests {
         let mut alphas = [200u8; 3];
         let weights = [10i8, 5, 3];
         let mut last_events = [0u16; 3];
-        let delta = update_dendrite_activity(2, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events);
-        assert_eq!(delta, 3); // 3 * (1 + 0)
+        let mut activity = 0u16;
+        let mut d_last = 0u16;
+        update_dendrite_activity(2, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        assert_eq!(activity, 3); // 3 * (1 + 0)
     }
 
     #[test]
@@ -151,8 +171,10 @@ mod tests {
         let mut alphas = [50u8, 200];
         let weights = [10i8, 5];
         let mut last_events = [0u16; 2];
-        let delta = update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events);
-        assert_eq!(delta, 1700);
+        let mut activity = 0u16;
+        let mut d_last = 0u16;
+        update_dendrite_activity(0, 0, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        assert_eq!(activity, 1700);
     }
 
     #[test]
@@ -165,8 +187,25 @@ mod tests {
         let mut alphas = [50u8, 200, 255];
         let weights = [10i8, 5, 3];
         let mut last_events = [0u16; 3];
-        let delta = update_dendrite_activity(0, 0, 2, &xs, &mut alphas, &weights, &mut last_events);
-        assert_eq!(delta, 1700); // dead slot 2 ignored despite alpha=255
+        let mut activity = 0u16;
+        let mut d_last = 0u16;
+        update_dendrite_activity(0, 0, 2, &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        assert_eq!(activity, 1700); // dead slot 2 ignored despite alpha=255
+    }
+
+    #[test]
+    fn update_dendrite_activity_leaks_prior_voltage_before_adding() {
+        // prior branch voltage 1024, basal leak half-life = 2^BASAL_DECAY=1024 ticks.
+        // elapsed = 1024 → one half-life → 1024 → 512, then + w_i*(1+0) = 512 + 10 = 522.
+        let xs = [10u8];
+        let mut alphas = [0u8];
+        let weights = [10i8];
+        let mut last_events = [0u16];
+        let mut activity = 1024u16;
+        let mut d_last = 0u16;
+        update_dendrite_activity(0, 1024, xs.len(), &xs, &mut alphas, &weights, &mut last_events, &mut activity, &mut d_last, false);
+        assert_eq!(activity, 522);
+        assert_eq!(d_last, 1024);
     }
 
     // --- apical_plateau (sigmoidal transfer; dv_s=64, k=9, θ_B=1000) ---
