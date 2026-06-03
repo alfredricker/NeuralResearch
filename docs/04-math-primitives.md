@@ -26,7 +26,17 @@ pub fn shift_decay(v: u16, t: u16, k: u8) -> u16 {
 pub fn shift_decay_u8(v: u8, t: u16, k: u8) -> u8 {   // u8 convenience wrapper
     shift_decay(v as u16, t, k) as u8
 }
+
+pub fn shift_decay_i8(v: i8, t: u16, k: u8) -> i8 {   // signed wrapper: decay magnitude, keep sign
+    let sign = if v < 0 { -1 } else { 1 };
+    (shift_decay(v.unsigned_abs() as u16, t, k) as i16 * sign) as i8
+}
 ```
+
+The `i8` variant decays a *signed* quantity — the soma potential
+([chapter 6.5](06-learning-dynamics.md)) — by decaying its magnitude and
+re-applying the sign, so a negative (hyperpolarized) potential leaks toward 0 from
+below just as a positive one leaks from above.
 
 How it works:
 
@@ -46,13 +56,21 @@ Worked example (from the tests): `shift_decay_u8(200, 5, 4)` — `k=4` so half-l
 is 16; `shifts=0`, `remainder=5`, `v_current=200`, `v_next=100`, `diff=100`,
 `drop = (100·5)>>4 = 31`, result `169`.
 
-This one function powers **both** decays in the model, parameterized by `k`:
+This one function powers **every** decay in the model, parameterized by `k`:
 
-- **Alpha decay** uses `k = ALPHA_DECAY = 8` → half-life 256 ticks. Slow: an
-  active synapse stays "eligible" for hundreds of ticks after its last spike.
-- **Distance attenuation in `gamma`** uses `k = X_DECAY = 4` → halves every 16
-  `x`-units. Here `t` is not time but the distance `x_j − x_i` between two
-  synapses ([chapter 6](06-learning-dynamics.md)). Same math, spatial axis.
+- **Alpha decay** (`k = ALPHA_DECAY = 11` → half-life 2048 ticks). Slow: an active
+  synapse stays "eligible" for thousands of ticks after its last spike, so the
+  eligibility trace comfortably outlives a trial.
+- **Branch-voltage leak** — basal (`BASAL_DECAY = 9` → 512 ticks) and apical
+  (`APICAL_DECAY = 11` → 2048 ticks). The dendrite forgets `V_B` on its own
+  between events ([chapter 6.2](06-learning-dynamics.md)).
+- **Soma-potential leak** (`SOMATIC_DECAY = 10` → 1024 ticks), via the `i8`
+  wrapper above ([chapter 6.5](06-learning-dynamics.md)).
+- **Distance attenuation in `gamma`** (`k = X_DECAY = 4` → halves every 16
+  `x`-units). Here `t` is not time but the distance `x_j − x_i` between two
+  synapses ([chapter 6.2](06-learning-dynamics.md)). Same math, spatial axis.
+- **The apical sigmoid.** `apical_plateau` ([chapter 6.3](06-learning-dynamics.md))
+  reuses `shift_decay` as the logistic core `e^(−κ·)`, with `κ = ln2 / 2^k`.
 
 ## 4.2 The samplers — `SamplerU8` / `SamplerI8` (`src/math/sample.rs`)
 
@@ -88,7 +106,9 @@ Design notes:
   neuron in the population.
 
 For simple bounded draws there are also `sample_u8_uniform(lo, hi, rng)` and
-`sample_i8_uniform(lo, hi, rng)` — used for weight initialization, e.g. `U(−8, 8)`.
+`sample_i8_uniform(lo, hi, rng)`. Weight initialization uses `U(0, 8)` —
+all-excitatory at start ([chapter 7.2](07-network-construction.md)), so LTD must
+drive weights negative rather than starting some there.
 
 The tests pin the statistical behavior (observed mean/std within tolerance) and
 two `visual_mnist`-specific expectations: dendrite-constant `N(60, 8)` stays
@@ -114,25 +134,29 @@ Every tuning knob in one place. They are the bridge between
 | `T_BETA` | 500 | ticks elapsed to subtract 1 from `beta` |
 | `H_ALPHA` | 30 | min `alpha` for a synapse to affect weights/boost |
 | `H_BETA` | 4 (`i16`) | burst threshold; `burst_term = beta − H_BETA` |
-| `ALPHA_DECAY` | 8 | `alpha` half-life = `2^8` = 256 ticks |
+| `ALPHA_DECAY` | 11 | `alpha` half-life = `2^11` = 2048 ticks |
 | `X_DECAY` | 4 | gamma distance half-life = `2^4` = 16 `x`-units |
-| `ALPHA_BOOST` | 64 | `alpha` added when a synapse receives a forward AP |
-| `MSLR` | 120 | minimum synaptic learning rate (see below) |
+| `BASAL_DECAY` | 9 | basal `V_B` leak half-life = `2^9` = 512 ticks |
+| `APICAL_DECAY` | 11 | apical `V_B` leak half-life = `2^11` = 2048 ticks |
+| `SOMATIC_DECAY` | 10 | soma potential leak half-life = `2^10` = 1024 ticks |
+| `SOMA_V_RESET` | −32 | soma potential after a spike (also its floor) |
+| `ALPHA_BOOST` | 64 | `alpha` added when a synapse receives an AP |
+| `MSLR` | 120 (`u16`) | minimum synaptic learning rate (see below) |
+| `SYNAPSE_SLOTS_PER_DENDRITE` | 255 | fixed analytic stride `S` per dendrite ([ch 7.3](07-network-construction.md)) |
+| `APICAL_DV_S` | 64 | δV_S: apical plateau ceiling ([ch 6.3](06-learning-dynamics.md)) |
+| `APICAL_SLOPE_K` | 9 | apical sigmoid slope, `κ = ln2 / 2^9` |
 
 **`MSLR` derivation.** Weight delta is `burst_term · alpha / lr`. The maxima are
-`burst_term_max = 2^6 − 5` (since `beta` is capped at 63 and `H_BETA = 4`, this is
-the largest documented burst term) and `alpha_max = 2^8 − 1 = 255`. `MSLR` is
-chosen so that `max(burst_term · alpha) / MSLR ≈ 127`, i.e. the biggest possible
-single update *just* fills an `i8` without spurious saturation. Picking
-`lr < MSLR` risks overflow; picking `lr > MSLR` gives slower (smaller) updates.
+`burst_term_max = 2^6 − 5` (since `beta` is capped at 63 and `H_BETA = 4`) and
+`alpha_max = 2^8 − 1 = 255`. `MSLR` is chosen so that
+`max(burst_term · alpha) / MSLR ≈ 127`, i.e. the biggest possible single update
+*just* fills an `i8` without spurious saturation. Picking `lr < MSLR` risks
+overflow; picking `lr > MSLR` gives slower (smaller) updates. The `io/` configs
+set `lr = MSLR` for fast updates (`output_config`,
+[chapter 11.4](11-io-boundary.md)).
 
-> **Watch-out.** The MNIST-oriented neuron config historically used `lr = 256`,
-> well above `MSLR = 120`. That is *valid* but slow: with `burst_term = 6,
-> alpha = 200`, `delta = 6·200/256 = 4` versus `10` at `MSLR`. Carried into
-> [chapter 9](09-gaps-and-open-questions.md) as a calibration item.
-
-`H_BETA = 4` and "a spike contributes 1 to beta" are admitted placeholders
-(`docs/code/beta.md`) pending experiments.
+`H_BETA = 4`, the per-spike `beta` increment, and the apical placeholders
+(`APICAL_DV_S`, `APICAL_SLOPE_K`) are admitted untuned values pending experiments.
 
 ---
 

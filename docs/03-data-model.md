@@ -7,48 +7,66 @@ incomplete.
 
 ## 3.1 The four component groups
 
-`Network` (`src/network/mod.rs`) owns three structs; a fourth (`Axon`) exists but
-is not yet wired in:
+`Network` (`src/network/mod.rs`) owns four SoA structs plus the per-population
+neuron ranges:
 
 ```rust
 pub struct Network {
+    synapses:  Synapse,
     dendrites: Dendrite,
     somas:     Soma,
-    synapses:  Synapse,
+    axons:     Axon,                // now a wired-in field, not a loose parameter
+    ranges:    Vec<Range<u32>>,     // global neuron range of each population, in add() order
 }
 ```
 
 Each struct is a bundle of parallel `Vec`s — one logical table, column-major.
+`ranges` is what `Network::population_range(id)` returns so the `io/` boundary can
+bind input/effector maps to concrete global indices
+([chapter 11](11-io-boundary.md)).
 
 ### Soma — one entry per neuron (`src/neuron/soma.rs`)
 
 ```rust
 pub struct Soma {
-    soma_potentials:  Vec<i8>,    // membrane potential V; reset to 0 on spike
+    soma_potentials:  Vec<i8>,    // membrane potential V; reset to SOMA_V_RESET (−32) on spike
     soma_thresholds:  Vec<i8>,    // fire when potential ≥ threshold
     soma_betas:       Vec<u8>,    // burst counter (chapter 1.5); capped at 63
-    soma_last_events: Vec<u16>,   // timestamp of last somatic spike (for beta decay)
+    soma_last_events: Vec<u16>,   // timestamp of last soma event (drives both potential & beta decay)
     soma_lrs:         Vec<i16>,   // per-neuron learning rate (divisor)
     dendrite_offsets: Vec<u32>,   // CSR: first dendrite index of each neuron (len = n+1)
 }
 ```
 
+Both the potential (`SOMATIC_DECAY`) and `beta` (1 per `T_BETA` ticks) leak
+lazily from `soma_last_events`; the whole soma state machine lives in
+`update_soma_potential` ([chapter 6.5](06-learning-dynamics.md)).
+
 ### Dendrite — one entry per dendrite (`src/neuron/dendrite.rs`)
 
 ```rust
 pub struct Dendrite {
-    dendrite_activities: Vec<u16>,  // accumulated depolarization; reset to 0 on dendritic spike
-    dendrite_last_events: Vec<u16>, // timestamp of last dendritic event
-    dendrite_constants:  Vec<i8>,   // branch constant: >0 proximal/basal, ≤0 distal/apical
-    dendrite_thresholds: Vec<u16>,  // fire when activity ≥ threshold
-    synapse_offsets:     Vec<u32>,  // CSR: first synapse index of each dendrite (len = d+1)
+    dendrite_activities:  Vec<u16>, // branch voltage V_B (basal AND apical integrate here); leaks, resets to 0 on a basal spike
+    dendrite_last_events: Vec<u16>, // timestamp of last dendritic event (drives the V_B leak)
+    dendrite_constants:   Vec<i8>,  // basal branch constant: >0 proximal, ≤0 distal
+    dendrite_thresholds:  Vec<u16>, // basal: hard spike threshold; apical: θ_B (plateau half-activation)
+    synapse_offsets:      Vec<u32>, // CSR: first synapse index of each dendrite (len = d+1); analytic d*S
+    live_synapse_counts:  Vec<u8>,  // number of bound synapse SLOTS, packed at the front of each block (chapter 7.4)
+    dendrite_to_neuron:   Vec<u32>, // reverse map d → owning neuron (stored for the event loop)
+    dendrite_is_apical:   Vec<u8>,  // 0 = basal, 1 = apical; u8 not bool so the buffer can be GPU-shared
 }
 ```
 
-The sign of `dendrite_constants[d]` is how the model distinguishes compartment
-behavior at runtime (proximal scales onto the soma; distal is attenuated — see
-[chapter 6](06-learning-dynamics.md)). The `Compartment { Apical, Basal }` enum
-in the same file is the *build-time* tag for the same distinction.
+Two runtime distinctions live here. The **sign of `dendrite_constants[d]`**
+selects proximal vs. distal *propagation* behavior (proximal scales onto the
+soma; distal is attenuated — [chapter 6.4](06-learning-dynamics.md)). The
+**`dendrite_is_apical[d]` flag** selects the *integration* behavior — basal hard
+threshold vs. apical graded plateau ([chapter 6.2](06-learning-dynamics.md)) — and
+is what lets a single axon drive whichever compartment its target slot belongs to.
+The `Compartment { Apical, Basal }` enum in the same file is the *build-time* tag
+the allocator and connection resolver use ([chapter 7](07-network-construction.md)).
+`live_synapse_counts` is the fixed-slot live count ([chapter 7.4](07-network-construction.md));
+`dendrite_to_neuron` is the O(1) reverse lookup the `DENDRITIC_SPIKE` handler needs.
 
 ### Synapse — one entry per synapse (`src/neuron/synapse.rs`)
 
@@ -69,21 +87,23 @@ guaranteed at allocation time rather than checked at runtime.
 ### Axon — inter-neuron connectivity (`src/neuron/axon.rs`)
 
 ```rust
-struct Axon {
-    axon_targets: Vec<u32>,   // flat list of target *synapse* indices
-    axon_offsets: Vec<u32>,   // CSR: first target index for each source neuron (len = n+1)
+pub struct Axon {
+    pub axon_targets: Vec<u32>,   // flat list of target *synapse* indices
+    pub axon_offsets: Vec<u32>,   // CSR: first target index for each source neuron (len = n+1)
 }
 ```
 
 `axon_targets[axon_offsets[n] .. axon_offsets[n+1]]` is the set of downstream
-synapses that neuron `n` drives when it fires a forward AP. Note targets are
-**absolute synapse indices**, which is why structural plasticity (deleting or
-moving a synapse) is delicate — see [chapter 7](07-network-construction.md) and
+synapses that neuron `n` drives when it fires. On a `SOMATIC_SPIKE` the loop fans
+one `SYNAPSE_SIGNAL` out to each of these targets
+([chapter 5.3](05-event-system.md)). Targets are **absolute synapse indices**,
+which is why structural plasticity (deleting or moving a synapse) is delicate —
+see [chapter 7.5](07-network-construction.md) and
 [chapter 9](09-gaps-and-open-questions.md).
 
-> **Gap.** `Axon` is `struct` (not `pub`), is not a field of `Network`, and is
-> not populated by any builder. The event loop receives `axon_targets` /
-> `axon_offsets` as bare parameters, so nothing constructs them yet.
+`Axon` is now a `pub` field of `Network`, populated by `build_network` (phase 4,
+[chapter 7.4](07-network-construction.md)): connections are resolved to
+`(source_neuron, target_synapse)` pairs and inverted into this CSR.
 
 ## 3.2 The index hierarchy
 
@@ -168,6 +188,14 @@ For the `visual_mnist`-style neuron (6 basal × 8 dendrites/branch × 16 synapse
 Earlier sizing sketches (`docs/code/data.md`) for three coarse neuron classes
 (Simple ~325 B, Interneuron ~660 B, Pyramidal ~2.5 KB per neuron) remain useful
 as ballpark figures for heterogeneous networks.
+
+> **Fixed-slot over-provisioning.** The table counts *live* synapses. The
+> allocator reserves `S = SYNAPSE_SLOTS_PER_DENDRITE = 255` slots per dendrite
+> regardless of live count ([chapter 7.3](07-network-construction.md)), so the
+> *allocated* synapse arrays are far larger — a 16-live-synapse dendrite still
+> occupies 255 slots. With `S = 255` the dead tail dominates; lower `S` in
+> `constants.rs` if memory matters before scaling up. The live-count figures above
+> are the working-set size that actually participates in the dynamics.
 
 ---
 

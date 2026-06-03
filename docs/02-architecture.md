@@ -88,12 +88,17 @@ happened to component X at time T." Processing an event mutates a *small, local*
 slice of state and may *emit new events*. The simulation runs until the queue
 drains. Nothing is touched unless an event reaches it.
 
-The three event types (detailed in [chapter 5](05-event-system.md)) mirror the
+The four event types (detailed in [chapter 5](05-event-system.md)) mirror the
 signal flow from [chapter 1](01-theory.md):
 
-- `FORWARD_AP` — an action potential arriving at a neuron's downstream synapses.
-- `DENDRITIC_SPIKE` — a dendrite crossed threshold.
-- `SOMATIC_SPIKE` — a soma crossed threshold (and will emit forward APs).
+- `SOMATIC_SPIKE` — a soma crossed threshold; fans out to its axon targets.
+- `SYNAPSE_SIGNAL` — one axonal AP delivery landing on a downstream synapse.
+- `DENDRITIC_SPIKE` — a basal dendrite crossed threshold.
+- `SOMA_SIGNAL` — a voltage delta arriving at the soma (from a dendritic spike or
+  an apical plateau) to integrate.
+
+Each event also carries a `payload` scalar — a burst count or a voltage delta —
+so a burst can propagate as one multiplier-bearing event rather than *N* repeats.
 
 ### The lazy-decay consequence
 

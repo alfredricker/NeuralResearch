@@ -82,14 +82,21 @@ population's arrays start.
 
 Although the simulation is event-driven with no global clock
 ([chapter 2.3](02-architecture.md)), a coarse global time is still useful for
-bookkeeping (trial counting, residency aging). The intended scheme: a `u64`
-global clock for absolute time, while individual components track *time since
-last event* in `u16` ([chapter 6.1](06-learning-dynamics.md)) — the `u16` is all
-the decay math needs, and `wrapping_sub` keeps it correct across wraps
-([chapter 2.4](02-architecture.md)). The global `u64` never enters the hot path;
-it only frames it.
+bookkeeping (trial counting, residency aging). The GPU-specific concern is
+contention: a single global atomic clock read per event by thousands of threads is
+a hot spot. The intended split avoids it — a `u64` global clock for absolute time,
+advanced *coarsely* (per kernel launch / per wavefront), while individual
+components track *time since last event* in `u16` ([chapter 6.1](06-learning-dynamics.md));
+the `u16` is all the decay math reads on the hot path, and `wrapping_sub` keeps it
+correct across wraps ([chapter 2.4](02-architecture.md)).
+
+The full treatment of clocking — what writes a timestamp today, what (doesn't yet)
+advance it, and the design options for a clock — is its own chapter:
+[chapter 12 — Time and the network clock](12-time-and-clocking.md). The `u64`-frames-`u16`-deltas
+scheme above is Option C there.
 
 ---
 
-This is the end of the documentation. Back to the [README](README.md) /
-[chapter 9 punch list](09-gaps-and-open-questions.md).
+Next: [chapter 11 — The IO boundary](11-io-boundary.md), the layer that connects
+all of this to the outside world, and [chapter 12 — Time and the network
+clock](12-time-and-clocking.md).

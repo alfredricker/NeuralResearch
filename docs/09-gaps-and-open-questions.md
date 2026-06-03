@@ -4,142 +4,170 @@ A consolidated, prioritized punch list of everything stubbed, undecided, or
 known-broken. Each item links to where it is discussed in context. Items are
 grouped by kind and ordered roughly by what blocks what.
 
-## 9.1 Blocking gaps — nothing runs end-to-end until these exist
+> **Major progress since earlier revisions.** The four "blocking" gaps that
+> headed this list — no allocator, empty `Network::build`, empty
+> `ConnRule::apply`, unwired `Axon` — are **all closed**
+> ([chapter 7](07-network-construction.md)). The network builds, wires, and
+> resolves its axon CSR, with tests. Apical feedback, once "disconnected
+> everywhere," now has a complete leaf-to-event mechanism
+> ([chapter 6.3](06-learning-dynamics.md)). What remains is the trial-loop glue,
+> the event-buffer lifecycle, and calibration.
 
-1. **The allocator does not exist.** No function turns a `NeuronConfig` +
-   neuron count into the SoA arrays the event loop consumes. This is the
-   keystone — every downstream item depends on it.
-   → [chapter 7.2](07-network-construction.md)
+## 9.1 Blocking the first end-to-end run
 
-2. **`Network::build` is an empty stub.** `src/network/mod.rs` has a `build` that
-   iterates connections but never returns a `Network` — it does not compile as
-   written. It must drive the allocator and the connection resolver.
-   → [chapter 7.2](07-network-construction.md)
-
-3. **`ConnRule::apply` is empty.** `src/network/topology/conn.rs` declares all
-   five connection rules but implements none. Needed to produce the axon CSR.
-   → [chapter 7.1](07-network-construction.md)
-
-4. **`Axon` is not wired into the model.** It is a private `struct`, not a field
-   of `Network`, and nothing populates `axon_targets` / `axon_offsets`. The event
-   loop receives them only as bare parameters.
-   → [chapter 3.1](03-data-model.md)
-
-## 9.2 Event-system correctness — must fix before multi-tick / parallel runs
-
-5. **The ring buffer never advances `head`.** `EventQueue::drain` reads `head`
+1. **The ring buffer never advances `head`.** `EventQueue::drain` reads `head`
    and `tail` but neither it nor anything else moves `head`, so slots are never
-   recycled. A multi-tick trial loop ([chapter 8.4](08-mnist-pipeline.md)) will
-   march `tail` forward indefinitely.
+   recycled. A multi-tick trial loop ([chapter 8.4](08-mnist-pipeline.md)) marches
+   `tail` forward indefinitely and eventually overruns the buffer.
    → [chapter 5.2](05-event-system.md)
 
-6. **`drain` slicing breaks when `tail` wraps.** `buf[head % len .. tail % len]`
-   produces an invalid range once `tail % len < head % len`. Only safe today
+2. **`run_event_loop` does not accumulate `spike_counts`.** `output.rs`'s readout
+   is written against a per-neuron AP accumulator the loop is expected to fill on
+   each `SOMATIC_SPIKE`, but the loop has no such counter. Without it the effector
+   has nothing to read.
+   → [chapters 8.4](08-mnist-pipeline.md), [11.4](11-io-boundary.md)
+
+3. **No clock advances time.** The only writer of a fresh timestamp is
+   `InputSpace::encode`, fed a caller-supplied `base_ts`; handlers reuse the
+   triggering timestamp, so a whole cascade runs at one frozen time and nothing
+   increments a clock between wavefronts. A trial loop needs a clocking scheme.
+   → [chapter 12](12-time-and-clocking.md)
+
+4. **No hidden-layer config or input→hidden→output wiring.** `input_config()` and
+   `output_config()` exist; the hidden `NeuronConfig` and the `connect` calls that
+   assemble the MNIST topology do not.
+   → [chapters 8.1](08-mnist-pipeline.md), [7.1](07-network-construction.md)
+
+## 9.2 Event-system correctness — before multi-tick / parallel runs
+
+5. **`drain` slicing breaks when `tail` wraps.** `buf[head % len .. tail % len]`
+   produces an invalid range once `tail % len < head % len`. Safe today only
    because capacity is assumed larger than one drain's worth of events.
    → [chapter 5.2](05-event-system.md)
 
-7. **Parallel write conflict on `dendrite_activities[d]`.** Two `FORWARD_AP`
+6. **The queue is FIFO, not time-ordered.** `drain` returns insertion order. Any
+   per-hop conduction delay ([chapter 12.3](12-time-and-clocking.md), Options B/D)
+   requires replacing the ring with a timestamp-ordered priority queue.
+   → [chapters 5.2](05-event-system.md), [12](12-time-and-clocking.md)
+
+7. **Parallel write conflict on `dendrite_activities[d]`.** Two `SYNAPSE_SIGNAL`
    events targeting the same dendrite at the same timestamp race on the
-   read-modify-write. Fine serially; a data race once the loop is parallelized.
-   Needs a resolution strategy (atomic accumulate / per-dendrite coalescing /
-   owner-thread).
+   read-modify-write of `dendrite_activities[d]` and `dendrite_last_events[d]`.
+   Fine serially; a data race once the loop is parallelized. Needs a resolution
+   strategy (atomic accumulate / per-dendrite coalescing / owner-thread).
    → [chapters 2.3](02-architecture.md), [5.4](05-event-system.md)
 
-8. **`Relaxed` atomics provide no ordering.** Acceptable single-threaded; provides
-   no happens-before for a real multi-producer/consumer queue.
+8. **`Relaxed` atomics provide no ordering.** Acceptable single-threaded; no
+   happens-before for a real multi-producer/consumer queue.
    → [chapter 5.2](05-event-system.md)
 
-9. **Serial fan-out in the `FORWARD_AP` arm.** The inner loop over axon targets is
-   flagged in-source as the prime batching/parallelism target.
-   → [chapter 5.3](05-event-system.md)
+9. **Serial fan-out in the `SOMATIC_SPIKE` path.** `handle_somatic_spike` enqueues
+   one `SYNAPSE_SIGNAL` per axon target in a loop — push-only and cheap, but the
+   flagged prime candidate for GPU batching / per-target parallel dispatch.
+   → [chapters 5.3](05-event-system.md), [10.2](10-gpu-execution-and-residency.md)
 
-## 9.3 Apical feedback — implemented at the leaf, disconnected everywhere else
+## 9.3 Layout / allocator follow-ups
 
-10. **No event arm routes to `handle_apical_fb`.** The handler exists and is
-    correct, but the dispatch loop has no apical event type, there is no
-    axon-constant array in the data model, and no config currently sets
-    `n_apical_dendrites` (it is `None`). Apical/BDP feedback cannot fire until
-    these three are added.
-    → [chapters 3.1](03-data-model.md), [5.3](05-event-system.md),
-    [6.6](06-learning-dynamics.md)
+10. **`synapse_to_dendrite` is still a binary search.** With fixed slots the
+    offset is analytic (`d·S`), so the reverse lookup *could* collapse to `s / S`,
+    but the code still stores `synapse_offsets` and uses `partition_point`. A
+    pending simplification, not a correctness bug.
+    → [chapters 7.3](07-network-construction.md), [3.2](03-data-model.md)
 
-## 9.4 Layout changes the slot model forces
+11. **`S = SYNAPSE_SLOTS_PER_DENDRITE = 255` over-provisions ~16×.** For a
+    16-live-synapse dendrite the dead tail dominates the allocated synapse arrays.
+    Fine for small MNIST nets; tune before scaling memory.
+    → [chapter 7.3](07-network-construction.md)
 
-11. **`live_count` does not exist.** Iterating only active synapses needs a
-    per-dendrite live count and packed-live layout.
+12. **Dropped edges are silent.** When a connection finds no free matching-
+    compartment slot on the target neuron, `build_network` drops the edge with no
+    diagnostic. Acceptable as capacity-limiting, but a silent loss of intended
+    connectivity.
     → [chapter 7.4](07-network-construction.md)
 
-12. **`update_dendrite_activity`'s loop bound must change with fixed slots.** It
-    currently bounds by slice length — correct only because the event loop
-    pre-trims the slice. Under fixed slots with a padded dead tail, it must bound
-    by `base + live_count`. The bound's origin is the dendrite base, **not**
-    `s_idx + live_count`.
-    → [chapters 6.2](06-learning-dynamics.md),
-    [7.4](07-network-construction.md)
+13. **`Topographic` is unimplemented.** `ConnRule::apply` returns
+    `ConnError::InvalidRule` for it.
+    → [chapter 7.1](07-network-construction.md)
 
-13. **Structural plasticity is unimplemented.** Tombstone / migrate / compact is
-    fully designed but no code exists. Relevant now only because it constrains
-    the allocator's stride/headroom choices.
+14. **Structural plasticity is unimplemented.** Tombstone / migrate / compact is
+    fully designed but no code exists. Relevant now mainly as a constraint on
+    stride/headroom choices.
     → [chapter 7.5](07-network-construction.md)
+
+## 9.4 Apical / feedback — mechanism done, topology missing
+
+15. **Apical feedback has no topology to exercise it.** The mechanism is complete
+    end-to-end — an apical `SYNAPSE_SIGNAL` integrates via `update_dendrite_activity`
+    and emits a graded `SOMA_SIGNAL` through `apical_plateau`. What's missing: a
+    config that sets `n_apical_dendrites` and the feedback `connect` calls onto
+    `Compartment::Apical` slots.
+    → [chapters 6.3](06-learning-dynamics.md), [8.5](08-mnist-pipeline.md)
 
 ## 9.5 Open design decisions
 
-14. **Trial boundary: sentinel event vs. timestamp cutoff.** Unresolved.
-    → [chapter 8.6](08-mnist-pipeline.md)
+16. **Trial boundary: timestamp cutoff vs. sentinel event.** With a caller-driven
+    clock the cutoff form is natural, but the loop is unwritten.
+    → [chapters 8.6](08-mnist-pipeline.md), [12](12-time-and-clocking.md)
 
-15. **Feedback path: direct injection vs. apical.** Option 1 unblocks
-    classification; Option 2 is real BDP.
+17. **Feedback path: direct injection vs. apical.** Option 1 unblocks
+    classification; Option 2 is real BDP and now much closer to reachable.
     → [chapter 8.5](08-mnist-pipeline.md)
 
-16. **Connectivity: dense random vs. receptive fields vs. topographic.**
-    Recommendation is dense random first.
+18. **Connectivity: dense/fixed-in-degree vs. receptive field vs. topographic.**
+    Recommendation is dense/fixed-in-degree first.
     → [chapter 8.2](08-mnist-pipeline.md)
 
-17. **Output-layer config.** Needs its own `NeuronConfig`: lower soma threshold,
-    simpler dendrites, no apical, possibly higher/zero learning rate.
-    → [chapter 8.1](08-mnist-pipeline.md)
+19. **Clocking scheme.** Caller-driven wavefront tick, global `u64` + local `u16`,
+    or full discrete-event priority queue — pick per feature needs.
+    → [chapter 12.3](12-time-and-clocking.md)
 
-18. **Packed dendrite address (`DendriteAddr`) — adopt or not.** Proposed
-    `u32` bit-packing is documented but unused; the runtime uses a flat
-    `dendrite_to_neuron` map. The "branch" tier is currently only an allocation
-    count, not an addressable level.
+20. **Packed dendrite address (`DendriteAddr`) — adopt or not.** Proposed `u32`
+    bit-packing is documented but unused; the runtime uses the flat
+    `dendrite_to_neuron` map. The "branch" tier is only an allocation count, not an
+    addressable level.
     → [chapter 3.3](03-data-model.md)
 
 ## 9.6 Calibration watch-outs
 
-19. **`learning_rate = 256 > MSLR = 120`** in the MNIST-oriented config — valid
-    but slow updates (`delta ≈ 4` vs `≈ 10` at `MSLR`). Verify it doesn't
-    underflow to 0 for typical `alpha`/`beta`.
-    → [chapter 4.4](04-math-primitives.md)
+21. **`dendrite_activity` and `soma_potential` now decay** (with `BASAL_DECAY` /
+    `APICAL_DECAY` / `SOMATIC_DECAY`). They no longer *require* a per-trial reset to
+    avoid stale accumulation, but a reset is still the clean trial-isolation choice
+    — and the half-lives interact with trial-window length.
+    → [chapters 6.2](06-learning-dynamics.md), [8.4](08-mnist-pipeline.md)
 
-20. **`dendrite_activity` has no decay** — only resets on spike, so it must be
-    explicitly cleared between trials.
-    → [chapters 6.3](06-learning-dynamics.md), [8.4](08-mnist-pipeline.md)
+22. **`u16` timestamp wrap.** Decay uses `wrapping_sub` and is safe, but trial
+    bookkeeping (~327 trials × 200 ticks exhausts `u16`) must not assume monotonic
+    timestamps — push monotonicity into a wider clock.
+    → [chapters 2.4](02-architecture.md), [12.4](12-time-and-clocking.md)
 
-21. **`u16` timestamp wrap.** Decay uses `wrapping_sub` and is safe, but
-    trial-level bookkeeping (≈327 trials × 200 ticks exhausts `u16`) must not
-    assume monotonic timestamps.
-    → [chapters 2.4](02-architecture.md), [6.1](06-learning-dynamics.md)
-
-22. **Weight init `U(−8, 8)`** ⇒ ~50% inhibitory synapses from the start, which
-    may suppress early dendrite firing. Consider `U(0, 8)` initially and let LTD
-    drive weights negative.
+23. **Weight init is now `U(0, 8)` — all excitatory.** Resolves the older
+    "~50% inhibitory from the start" concern; LTD must now *drive* weights
+    negative rather than starting there. Watch that early dendrites can actually
+    reach threshold.
     → [chapter 7.2](07-network-construction.md)
 
-23. **No lateral inhibition / winner-take-all.** Nothing makes hidden neurons
+24. **No lateral inhibition / winner-take-all.** Nothing makes hidden neurons
     specialize; many may respond to the same input. May need explicit inhibitory
     connections or beta-based suppression.
     → [chapter 8](08-mnist-pipeline.md)
 
-24. **`H_BETA = 4` and "spike adds 1 to beta" are placeholders** pending
+25. **Untuned placeholders.** `H_BETA = 4`, the per-spike `beta` increment,
+    `APICAL_DV_S = 64`, and `APICAL_SLOPE_K = 9` are admitted placeholders pending
     experiments.
-    → [chapter 4.4](04-math-primitives.md)
+    → [chapters 4.4](04-math-primitives.md), [6.3](06-learning-dynamics.md)
+
+26. **Stale unit tests after a constants change.** Several `synapse` and
+    `dendrite` tests hard-code the *old* decay half-lives (`ALPHA_DECAY = 8`,
+    `BASAL_DECAY` giving a 1024-tick half-life) and now fail against the current
+    constants (`ALPHA_DECAY = 11` → 2048, `BASAL_DECAY = 9` → 512). The *code* is
+    the source of truth; the test expectations need updating.
+    → [chapters 4.4](04-math-primitives.md), [6.1](06-learning-dynamics.md)
 
 ## 9.7 Documentation drift
 
-25. **`CLAUDE.md` references nonexistent `taxonomy/` and `init/` directories.**
-    The neuron-config/taxonomy split it describes has been refactored away; configs
-    now live under `src/neuron/` and the SoA arrays are owned by `Network`. The
-    root doc should be reconciled with the current tree (and with this `docs/`
-    book).
+27. **`CLAUDE.md` / root docs may still describe the old event model.** This
+    `docs/` book reflects the current four-event system (`SOMATIC_SPIKE`,
+    `DENDRITIC_SPIKE`, `SOMA_SIGNAL`, `SYNAPSE_SIGNAL`), the built allocator, the
+    `io/` boundary, and the clocking question. Reconcile any root-level docs that
+    still reference `FORWARD_AP` / `APICAL_FB`, `taxonomy/`, or `init/`.
     → [README](README.md)

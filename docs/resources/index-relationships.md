@@ -105,11 +105,18 @@ dendrite 3) — both owned by **neuron 1**. The axon CSR encodes this:
 | `axon_offsets` | `[0, 2, 2]` | neuron 0 → targets `[0,2)`; neuron 1 → `[2,2)` (none) |
 | `axon_targets` | `[7, 10]` | the absolute synapse indices neuron 0 drives |
 
+A somatic spike does **not** resolve targets inline. `handle_somatic_spike` just
+fans out one independent `SYNAPSE_SIGNAL` per axon target (carrying the burst);
+each is resolved later, on its own, by the loop's `SYNAPSE_SIGNAL` arm. This is
+the push-only, parallelizable fan-out from
+[§5.3](../05-event-system.md).
+
 ```mermaid
 flowchart LR
-    soma0(("soma 0 spikes")) -->|"emit FORWARD_AP, source = 0"| loop{{"event loop: FORWARD_AP arm"}}
-    loop -->|"axon_targets[ axon_offsets[0] .. axon_offsets[1] ] = [7, 10]"| t7["target s7"]
-    loop --> t10["target s10"]
+    soma0(("soma 0 spikes")) -->|"SOMATIC_SPIKE, source = 0, payload = burst"| h{{"handle_somatic_spike"}}
+    h -->|"BaP weight sweep over neuron 0's own synapses"| bap["w += (β−H_BETA)·α/lr"]
+    h -->|"push SYNAPSE_SIGNAL per axon_targets[0..2] = [7, 10]"| t7["SYNAPSE_SIGNAL s7"]
+    h --> t10["SYNAPSE_SIGNAL s10"]
 
     t7 -->|"synapse_to_dendrite(7) = 2"| d2["dendrite 2"]
     t10 -->|"synapse_to_dendrite(10) = 3"| d3["dendrite 3"]
@@ -117,18 +124,21 @@ flowchart LR
     d2 -->|"dendrite_to_neuron[2] = 1"| n1soma(("soma 1"))
     d3 -->|"dendrite_to_neuron[3] = 1"| n1soma
 
-    t7 -. "handle_forward_ap: boost alpha, gamma-integrate" .-> d2
+    t7 -. "handle_synapse_signal: boost alpha, gamma-integrate (×burst)" .-> d2
     t10 -. .-> d3
-    d2 -. "if activity >= threshold: DENDRITIC_SPIKE" .-> n1soma
+    d2 -. "basal & activity >= threshold: DENDRITIC_SPIKE → SOMA_SIGNAL" .-> n1soma
 ```
 
-Trace it in words: soma 0 spikes → emits `FORWARD_AP(source=0)` → the loop reads
-`axon_targets` for neuron 0 → lands on absolute synapses `s7`, `s10` → each is
-resolved to its dendrite (`synapse_to_dendrite`) → `handle_forward_ap` boosts
-that synapse and integrates its dendrite → if a dendrite crosses threshold it
-emits a `DENDRITIC_SPIKE`, whose handler finds the soma via
-`dendrite_to_neuron`. The forward signal crossed from neuron 0 to neuron 1 using
-nothing but integer indices.
+Trace it in words: soma 0 fires → `SOMATIC_SPIKE(source=0, payload=burst)` →
+`handle_somatic_spike` runs the back-propagating weight update over neuron 0's own
+synapses **and** pushes one `SYNAPSE_SIGNAL` per axon target → each lands on an
+absolute synapse (`s7`, `s10`), resolved to its dendrite by `synapse_to_dendrite`
+→ `handle_synapse_signal` boosts that synapse and integrates its dendrite (EPSP
+scaled by the burst) → a basal dendrite over threshold emits a `DENDRITIC_SPIKE`,
+whose handler reaches the soma via `dendrite_to_neuron` as a `SOMA_SIGNAL` (an
+apical target would instead emit the `SOMA_SIGNAL` directly, carrying its plateau).
+The forward signal crossed from neuron 0 to neuron 1 using nothing but integer
+indices.
 
 ## 5. The two reverse lookups, side by side
 
@@ -139,10 +149,11 @@ flowchart LR
 ```
 
 `dendrite_to_neuron` is stored (cheap O(1), built at allocation) because the
-`DENDRITIC_SPIKE` handler needs it on every dendritic spike;
-`synapse_to_dendrite` is a binary search because it is only needed when fanning
-out a forward AP and storing a full per-synapse reverse map would cost more than
-it saves (and becomes pure division under fixed slots anyway).
+`DENDRITIC_SPIKE` and `SYNAPSE_SIGNAL` handlers need it on every event;
+`synapse_to_dendrite` is a binary search because it is only needed when resolving
+a `SYNAPSE_SIGNAL`, and storing a full per-synapse reverse map would cost more
+than it saves (and could become pure division `s / S` under fixed slots —
+[§7.3](../07-network-construction.md) — though the code still binary-searches).
 
 ---
 

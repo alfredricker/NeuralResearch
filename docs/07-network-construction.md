@@ -2,48 +2,52 @@
 
 Everything so far assumed the SoA arrays already exist. This chapter is about
 *building* them: from a declarative description of neuron types and connectivity
-down to the flat `Vec`s [chapter 6](06-learning-dynamics.md) operates on. It is
-the project's **critical path** — most of it is designed but not yet implemented.
+down to the flat `Vec`s [chapter 6](06-learning-dynamics.md) operates on.
+
+> **Status change.** Earlier revisions of this book called construction "the
+> critical gap — designed but not built." That is no longer true. The allocator
+> (`Population::generate_neurons`), the orchestrator (`build_network`), and the
+> connection resolver (`ConnRule::apply`) are all **implemented and unit-tested**.
+> This chapter now documents the code as it stands; the remaining gaps are
+> narrower and listed in [chapter 9](09-gaps-and-open-questions.md).
 
 The pipeline has two clean halves:
 
 ```
-DECLARE                                        COMPILE
-NeuronConfig ─▶ Population ─┐                  ┌─▶ allocator ─▶ Soma/Dendrite/Synapse arrays
-                            ├─▶ NetworkBuilder ─┤
-Connection (ConnRule) ─────┘                  └─▶ resolver  ─▶ Axon CSR (axon_targets/offsets)
+DECLARE                                          COMPILE
+NeuronConfig ─▶ Population ─┐                     ┌─▶ generate_neurons ─▶ Soma/Dendrite/Synapse arrays
+                           ├─▶ NetworkBuilder ─▶ build_network ─┤
+Connection (ConnRule) ─────┘                     └─▶ ConnRule::apply ─▶ Axon CSR (axon_targets/offsets)
 ```
-
-The declarative half is typed and ~complete. The compile half is the gap.
 
 ## 7.1 The declarative front-end
 
 ### `NeuronConfig` (`src/neuron/config.rs`) — a neuron *type*
 
-Pure data plus samplers ([chapter 4.2](04-math-primitives.md)). It describes
-shape and distributions, not any particular neuron:
+Pure data plus samplers ([chapter 4.2](04-math-primitives.md)) — shape and
+distributions, not any particular neuron:
 
 ```rust
 pub struct NeuronConfig {
     pub name: &'static str,
-    // topology
     pub n_basal_dendrites:  u8,
     pub n_apical_dendrites:  Option<u8>,        // None ⇒ no apical compartment
-    // random parameters — sampled per neuron at allocation
     pub synapse_x_sampler:     SamplerU8,       // position x along dendrite
     pub dendrites_per_branch:  SamplerU8,
     pub synapses_per_dendrite: SamplerU8,
-    // soma
     pub soma_threshold: i8,
-    // basal / apical dendrites
     pub basal_dendrite_threshold: u16,
     pub basal_dendrite_constant:  SamplerI8,
-    pub apical_dendrite_threshold: Option<u16>,
+    pub apical_dendrite_threshold: Option<u16>, // Some required iff n_apical_dendrites is Some
     pub apical_dendrite_constant:  Option<SamplerI8>,
-    // learning
     pub learning_rate: i16,
 }
 ```
+
+The concrete configs that exist today live in `src/io/` — `input_config()`
+(zero-dendrite axon sources) and `output_config()` (low-threshold integrators) —
+documented in [chapter 11](11-io-boundary.md). A dedicated *hidden-layer* config
+for MNIST is still to be written ([chapter 8](08-mnist-pipeline.md)).
 
 ### `Population` (`src/neuron/population.rs`) — a *count* of one type
 
@@ -51,10 +55,10 @@ pub struct NeuronConfig {
 pub struct Population { pub name: &'static str, pub config: &'static NeuronConfig, pub size: u32 }
 ```
 
-A population is a pure node — it stores no topology. Identity is a generated
-`u32` id (allocation order), which is what lets motifs be duplicated
-programmatically (a motif = a function returning its port ids; duplication = a
-`for` loop).
+A population is a pure node — it stores no topology. Its identity is its index in
+the builder's `populations` vector (allocation order), which is what
+`NetworkBuilder::add` returns and what `Network::population_range`
+([chapter 11](11-io-boundary.md)) later resolves to a global neuron range.
 
 ### `Connection` / `ConnRule` (`src/network/topology/conn.rs`) — wiring intent
 
@@ -63,167 +67,164 @@ pub struct Connection { pub from: u32, pub to: u32, pub compartment: Compartment
 
 pub enum ConnRule {
     DenseRandom { p: f32 },     // each possible edge made with probability p
-    FixedInDegree { k: u32 },   // each target gets exactly k incoming edges
+    FixedInDegree { k: u32 },   // each target gets exactly k distinct incoming edges
     ReceptiveField { radius: u32 },
-    Topographic { patch: u8 },
+    Topographic { patch: u8 },  // TODO — currently returns InvalidRule
     OneToOne,                   // i→i, requires equal population sizes
 }
 ```
 
 `Compartment { Apical, Basal }` ([chapter 3.1](03-data-model.md)) chooses which
-dendrite class the connection lands on.
+dendrite class the connection lands on. `ConnRule::apply(src, dst, rng, edges)`
+is **implemented** for `DenseRandom`, `FixedInDegree`, `OneToOne`, and
+`ReceptiveField`; it pushes `(src_neuron, dst_neuron)` pairs into `edges`.
+`Topographic` is still a stub returning `ConnError::InvalidRule`. The spatial
+rules assume both populations are laid out on a `√N × √N` grid with position =
+index (so MNIST's 784 pixels are a 28×28 sheet).
 
 ### `NetworkBuilder` (`src/network/build.rs`) — the assembly API
 
 ```rust
 impl NetworkBuilder {
-    pub fn add(&mut self, config: &'static NeuronConfig, size: u32) -> u32 { /* returns pop id */ }
-    pub fn connect(&mut self, from: u32, to: u32, c: Compartment, rule: ConnRule) { /* records a Connection */ }
+    pub fn add(&mut self, config: &'static NeuronConfig, size: u32) -> u32 { /* push Population, return id */ }
+    pub fn connect(&mut self, from: u32, to: u32, c: Compartment, rule: ConnRule) { /* push Connection */ }
 }
 ```
 
-`add` and `connect` just accumulate `Vec<Population>` and `Vec<Connection>`. They
-do no allocation — the builder is a recipe, not the dish.
+`add` and `connect` just accumulate `Vec<Population>` and `Vec<Connection>` — the
+builder is a recipe, not the dish.
 
-## 7.2 The allocator (designed, not built)
+## 7.2 The allocator — `Population::generate_neurons`
 
-This is the keystone. A function — sketched as `build_layer(config, n_neurons,
-rng) -> ...` — must materialize, for one population, every array
-[chapter 3](03-data-model.md) declares, in offset-consistent order:
+Each population materializes its own slice of every SoA array, *appending* to the
+growing buffers so populations lay down back-to-back in `add` order. The geometry
+is fixed per population so offsets stay analytic:
 
-- **Soma** (len `n`): potentials/betas/last_events = 0; thresholds =
-  `config.soma_threshold`; lrs = `config.learning_rate`; `dendrite_offsets` with
-  stride `n_basal_dendrites × dendrites_per_branch`.
-- **Dendrite** (len `n × dends_per_neuron`): activities/last_events = 0;
-  thresholds = `basal_dendrite_threshold`; constants sampled from
-  `basal_dendrite_constant`; `synapse_offsets` with stride
-  `synapses_per_dendrite`; plus the `dendrite_to_neuron` reverse map.
-- **Synapse** (len `n × dends × syns`): weights = small uniform (e.g. `U(−8,8)`);
-  `x` sampled from `synapse_x_sampler` **and sorted ascending within each
-  dendrite**; alphas/last_events = 0.
+- **`D` dendrites per neuron** = `n_basal_dendrites × dendrites_per_branch`
+  (+ apical if configured). `dendrites_per_branch` is sampled **once per
+  population**, so every neuron in it shares the same `D` and
+  `dendrite_offsets[n] = dendrite_base + n·D` is exact.
+- **Soma arrays** (len `size`): potentials/betas/last_events = 0; thresholds =
+  `config.soma_threshold`; lrs = `config.learning_rate`; `dendrite_offsets`
+  pointing at each neuron's first dendrite.
+- **Dendrite arrays** (`generate_dendrites`): basal dendrites come first, then
+  apical (the `is_apical = local_d % D ≥ basal_ds` test). Each gets
+  `synapse_offsets[d] = d·S` (the analytic fixed stride, §7.3), a sampled
+  `live_synapse_count`, a `dendrite_to_neuron` back-pointer, and
+  compartment-tagged `constant` / `threshold` / `is_apical`. Configuring apical
+  dendrites without `apical_dendrite_{threshold,constant}` panics — a deliberate
+  loud failure.
+- **Synapse arrays** (`generate_synapses`): for each dendrite, draw `live` UNIQUE
+  positions into a `BTreeSet<u8>` — which yields them **sorted ascending for
+  free**, satisfying the load-bearing invariant. The live prefix gets weights
+  `U(0, 8)` (all-excitatory init), the sampled `x`, alpha/last_event = 0; the dead
+  tail (up to `S`) is zeroed so every block is exactly `S` wide.
 
-The sort step is non-negotiable: it is what makes the gamma loop's invariant
-([chapter 6.2](06-learning-dynamics.md)) hold. Build each dendrite's `x` values,
-sort, then write.
+The sort is not a separate step — it falls out of the `BTreeSet`. Rejection
+sampling can't always reach `live` distinct `u8` values, so attempts are capped
+and `live_synapse_counts[d]` is shrunk to whatever was actually drawn (the source
+of truth `generate_synapses` reads back).
 
-> **Gap.** `Network::build` (`src/network/mod.rs`) is an empty stub that does not
-> even return a `Network`; `ConnRule::apply` is an empty body. No allocator
-> exists. This is the top of the priority list in
-> [chapter 9](09-gaps-and-open-questions.md).
+The trailing sentinels for `dendrite_offsets` / `synapse_offsets` are
+deliberately **not** added per population; `build_network` appends them once after
+all populations are generated.
 
-## 7.3 Fixed synapse slots — the layout decision
+## 7.3 Fixed synapse slots — the layout decision, now in code
 
-This is the most consequential **specific design choice** for the allocator, and
-it follows directly from [chapter 2](02-architecture.md)'s offset-array and
-GPU-coalescing principles.
+The most consequential layout choice, and it is implemented:
 
-**Decision: synapses are pre-allocated as fixed-size slots per dendrite, and
-connections bind to existing slots rather than creating synapses.**
+**Synapses are pre-allocated as fixed-size slots per dendrite, and connections
+bind to existing slots rather than creating synapses.**
 
-Because a neuron type fixes `synapses_per_dendrite`, every dendrite gets its full
-pool of *empty slots* at allocation. The immediate payoff:
-
-```
-synapse_offsets[d] = d * stride        // ANALYTIC — no prefix-sum pass, no stored array needed
-```
-
-The offsets become pure arithmetic ([chapter 2.2](02-architecture.md)), and
-`synapse_to_dendrite` ([chapter 5.3](05-event-system.md)) collapses from a binary
-search to `s / stride`. Connections (phase 2) then *bind a presynaptic source to
-an existing empty slot* via a per-target cursor and emit `(source_neuron,
-target_synapse)` pairs, grouped by source into the axon CSR. They create nothing
-and **never reorder**, so the sorted-`x` invariant set up in §7.2 is structurally
-preserved.
-
-The rejected alternative — materializing synapses in connection order — would
-force a post-hoc co-permutation of weights/`x`/alphas/last_events plus a counting
-pass to size the arrays. Fragile and slower.
-
-## 7.4 Iterating only active synapses — `live_count`
-
-[Chapter 6.2](06-learning-dynamics.md)'s gamma loop, and dendritic integration
-generally, should iterate only *bound, live* synapses — not empty or tombstoned
-slots. With fixed slots there are two orderings that appear to conflict:
-
-1. The gamma loop needs synapses **sorted ascending by `x`**.
-2. We want to iterate only **live** synapses, skipping dead ones.
-
-They only conflict if dead slots can sit *between* live ones. The resolution is
-one invariant: **dead slots always live at the tail of the block.** Then a single
-layout satisfies both:
+`SYNAPSE_SLOTS_PER_DENDRITE = S` is the uniform stride (currently `u8::MAX = 255`,
+which over-provisions heavily — tune in `constants.rs` if memory matters). Because
+every dendrite gets its full pool of empty slots at allocation:
 
 ```
-[ base ............................. base + stride )
-  └──── live, sorted by x ────┘└──── dead ────┘
-        [base, base + live_count)   [base + live_count, base + stride)
+synapse_offsets[d] = d * S        // analytic — value is pure arithmetic
 ```
 
-Add one array — `live_count: Vec<u8>` (one per dendrite) — and keep the live
-synapses packed at the front, sorted by `x`. The gamma loop then bounds itself by
-`base + live_count`, **not** by the full stride and **not** by `s_idx + live_count`
-(the count's origin is the dendrite base, not the firing synapse):
+The offsets are *value*-analytic, though the code still **stores** them as a `Vec`
+and `synapse_to_dendrite` still does a `partition_point` binary search rather than
+the `s / S` division the analytic form permits — a possible future simplification,
+not yet taken ([chapter 9](09-gaps-and-open-questions.md)).
 
-```rust
-let base     = synapse_offsets[d] as usize;          // = d * stride, analytic
-let live_end = base + live_count[d] as usize;
-for j in (s_idx + 1)..live_end { /* ... */ }         // only live, more-distal synapses
-```
+Connections then *bind a presynaptic source to an existing empty slot* (§7.4
+below) and emit `(source_neuron, target_synapse)` pairs grouped into the axon CSR.
+They create nothing and **never reorder**, so the sorted-`x` invariant set up in
+§7.2 is structurally preserved. The rejected alternative — materializing synapses
+in connection order — would force a post-hoc co-permutation of
+weights/`x`/alphas/last_events plus a counting pass to size the arrays.
 
-Why this beats the alternatives **for the GPU specifically**:
+## 7.4 `build_network` — orchestration and slot binding
 
-| Approach | Hot-loop cost | GPU behavior |
-| -------- | ------------- | ------------ |
-| **Packed + `live_count`** (recommended) | iterate `live_count` contiguous slots | coalesced reads; loop bound is *uniform across the warp* ⇒ no divergence |
-| Tombstone + `if dead { skip }` | iterate full stride, branch per slot | warp divergence; reads dead data; wasted lanes |
-| Per-dendrite bitmask | popcount/ballot to find live | uniform too, but you must still map set-bits → compacted order to do the *ordered* suffix sum — i.e. re-derive the packing every kernel call |
+`build_network(builder, rng)` (`src/network/build.rs`) runs four phases:
 
-The gamma sum is an **ordered suffix reduction** (`Σ` over `x_j > x_i`). Packing
-front-loads that compaction once, at structural-change time, so the per-spike hot
-loop stays trivial. Since reads (every spike) vastly outnumber structural edits,
-that is the right place to pay. The bitmask only wins if structural churn
-dominated reads, which it will not in a training loop.
+1. **Generate** each population in turn (§7.2), recording its global neuron
+   `Range<u32>` into `ranges` (later surfaced by `Network::population_range`).
+2. **Append the trailing sentinels** to `dendrite_offsets` and `synapse_offsets`.
+3. **Resolve connections into axon edges.** For each `Connection`, call
+   `rule.apply` to get `(src_neuron, dst_neuron)` pairs, then for each pair bind
+   the source to *the first free synapse slot on a matching-compartment dendrite*
+   of the destination neuron:
 
-> **Gap / change-on-adoption.** `live_count` does not exist yet, and
-> `update_dendrite_activity` ([chapter 6.2](06-learning-dynamics.md)) currently
-> bounds by slice length — correct only because [chapter 5](05-event-system.md)
-> pre-trims the slice to exactly the dendrite's synapses. Adopting fixed slots
-> with a padded tail means the slice becomes the *full stride block*, and the
-> loop must switch to the `live_end` bound above. This is the one concrete
-> code change the slot model forces on the hot path.
+   ```rust
+   let want_apical = matches!(c.compartment, Compartment::Apical) as u8;
+   for den in dendrite_offsets[d] .. dendrite_offsets[d+1] {
+       if dendrite_is_apical[den] != want_apical { continue; }
+       if consumed[den] < live_synapse_counts[den] {        // a free live slot exists
+           let slot = synapse_offsets[den] + consumed[den];
+           consumed[den] += 1;
+           axon_edges.push((src, slot));
+           break;
+       }                                                    // else dendrite full → try next; else drop edge
+   }
+   ```
+
+   `consumed[d]` is a per-dendrite cursor so no slot is wired to two presynaptic
+   axons. An edge that finds no free matching-compartment slot is **silently
+   dropped** — a capacity-limited binding, not an error.
+4. **Build the axon CSR.** Sort `axon_edges` by source neuron, prefix-sum the
+   per-source counts into `axon_offsets` (len `n+1`), and flatten the targets into
+   `axon_targets`. The result is the `Axon` ([chapter 3.1](03-data-model.md)) that
+   `run_event_loop`'s `SOMATIC_SPIKE` arm fans out over.
+
+`Network::build` wraps this with a fixed-seed `SmallRng` for reproducibility. The
+returned `Network { synapses, dendrites, somas, axons, ranges }` is exactly what
+the event loop consumes.
+
+The build is covered by tests that pin the load-bearing invariants: offset arrays
+carry their trailing sentinels, the axon CSR is monotonic and correctly sized,
+one-to-one wires each source exactly once onto a *distinct basal slot of the right
+population*, and `synapse_x` is strictly ascending within every live block.
 
 ## 7.5 Structural plasticity — keeping it non-fragile
 
-If synapses can be added/removed during learning, the fixed-slot layout makes it
-cheap *provided one rule is never broken*: **never rewrite `synapse_offsets`
-in-place at runtime.** Two things make naive in-place deletion a nightmare —
-fixed-stride offsets would all have to shift, and `axon_targets` store *absolute*
-synapse indices, so moving a synapse silently invalidates every incoming axon
-pointer. So separate *liveness* from *layout*:
+Still entirely a *design* — there is no structural-plasticity code — but the
+fixed-slot layout (§7.3) is what makes it cheap, and the allocator's stride/
+headroom choices are made with it in mind. The rule that must never break:
+**never rewrite `synapse_offsets` in-place at runtime.** Two things make naive
+in-place deletion a nightmare — fixed-stride offsets would all have to shift, and
+`axon_targets` store *absolute* synapse indices, so moving a synapse silently
+invalidates every incoming axon pointer. So separate *liveness* from *layout*:
 
-1. **Tombstone (runtime, O(1)).** Don't remove — mark dead (sentinel weight, dead
-   flag, or `x = 255`) and decrement nothing structural. With the packing model
-   (§7.4), "delete" = shift the live tail left by one and `live_count -= 1`
-   (preserves sort), O(stride) over a ~16-element block.
+1. **Tombstone (runtime, O(1)→O(stride)).** Don't remove — with the packed model,
+   "delete" = shift the live tail left by one and `live_synapse_counts -= 1`
+   (preserves the sort), O(stride) over a ~16-live-element block.
 2. **Migrate within the block (runtime, O(stride)).** Insert into a dead tail
-   slot, `live_count += 1`, re-sort the ≤16-element live prefix by `x`. All edits
-   stay inside one fixed block; offsets never move.
+   slot, `live_count += 1`, re-sort the small live prefix by `x`. All edits stay
+   inside one fixed block; offsets never move.
 3. **Compaction (offline, between epochs, one linear pass).** When tombstones
-   accumulate, rebuild: walk dendrites, copy live synapses into fresh arrays,
-   recompute offsets, build an `old_index → new_index` remap, and apply it to
-   `axon_targets` in one scan. This is the GC model — non-fragile precisely
-   because it rebuilds with an explicit remap instead of mutating in place.
+   accumulate, rebuild: copy live synapses into fresh arrays, recompute offsets,
+   build an `old_index → new_index` remap, and apply it to `axon_targets` in one
+   scan. The GC model — non-fragile because it rebuilds with an explicit remap
+   instead of mutating in place.
 
 The one genuinely global concern — the absolute-index remap of `axon_targets`
-when a synapse's index changes — is confined to the deliberate compaction pass.
-A within-block delete that shifts the tail also changes absolute indices; the
-clean options are (a) make `axon_targets` address a *logical* `(dendrite, slot)`,
-or (b) defer the fixup to compaction and tolerate a brief stale window. If
+when a synapse's index changes — is confined to that compaction pass. If
 plasticity ever needs *more* synapses than the stride allows, over-provision each
-block with headroom (`stride + slack`) at allocation; compaction reclaims it.
-
-> **Status.** Entirely a design for now — there is no structural-plasticity code.
-> It is documented here because it constrains the allocator's slot/stride choices
-> (§7.3) that *are* about to be built.
+block (`stride + slack`); compaction reclaims it. With `S = 255` today, headroom
+is abundant.
 
 ---
 

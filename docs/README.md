@@ -34,27 +34,39 @@ previous ones. Read in order the first time.
 10. [Appendix — GPU execution and residency](10-gpu-execution-and-residency.md) —
     segmented reduction, the event-buffer kernel pattern, and how the network is
     partitioned into VRAM (Hawkes-driven hot-loading, METIS vs. biological cuts).
+11. [The IO boundary](11-io-boundary.md) — `src/io/`: input spaces and the
+    sensory arrow (afferent), effectors and the readout arrow (efferent), and how
+    pixels become events and spikes become predictions. Underpins chapter 8.
+12. [Time and the network clock](12-time-and-clocking.md) — the one thing the
+    event-driven model leaves open: what sets a `timestamp` and what advances
+    time. The design options for giving the network a clock.
 
 ### Resources
 
 - [Index relationships (Mermaid diagrams)](resources/index-relationships.md) —
   how neuron / dendrite / synapse / axon connect through offset arrays and
-  reverse lookups, with a worked example and the forward-AP path traced through
-  indices.
+  reverse lookups, with a worked example and the axonal fan-out path (a somatic
+  spike's `SYNAPSE_SIGNAL`s) traced through indices.
 
 ## Status at a glance
 
-**Implemented and unit-tested** — the leaf biophysics and the event machinery:
-`math/decay`, `math/sample`, `neuron/synapse`, `neuron/dendrite`,
-`network/event/*` (queue, producer, handlers, loop, slice).
+**Implemented and unit-tested** — the leaf biophysics, the event machinery, *and*
+construction: `math/decay`, `math/sample`, `neuron/{synapse,dendrite,soma}`,
+`network/event/*` (queue, producer, handlers, loop, slice), the allocator
+(`neuron/population`), the orchestrator (`network/build`), the connection resolver
+(`network/topology/conn`), and the `io/` boundary (`InputSpace`/`Effector`). The
+network now **builds, wires, and resolves its axon CSR**.
 
-**Typed but unbuilt** — the declarative front-end: `NeuronConfig`, `Population`,
-`Connection`/`ConnRule`, `NetworkBuilder`.
+**The remaining gap** — the end-to-end *trial loop*: the event ring buffer never
+recycles slots (`head` is never advanced), `run_event_loop` does not accumulate
+the `spike_counts` the readout needs, nothing advances a clock, and there is no
+hidden-layer config yet. See [chapter 9](09-gaps-and-open-questions.md).
 
-**The critical gap** — nothing compiles the front-end into the SoA arrays the
-event loop consumes. `Network::build` and `ConnRule::apply` are empty; the
-per-neuron allocator does not exist. See [chapter 9](09-gaps-and-open-questions.md).
+**Event model** — four event types: `SOMATIC_SPIKE`, `DENDRITIC_SPIKE`,
+`SOMA_SIGNAL`, `SYNAPSE_SIGNAL` (the older `FORWARD_AP` / `APICAL_FB` are gone). A
+burst count rides the event payload as a multiplier
+([chapter 5](05-event-system.md)).
 
-> Source-of-truth note: the root `CLAUDE.md` references `taxonomy/` and `init/`
-> directories that no longer exist in `src/`. This documentation reflects the
-> tree as it actually stands.
+> Source-of-truth note: any root-level `CLAUDE.md` that still references
+> `FORWARD_AP`/`APICAL_FB`, or `taxonomy/`/`init/` directories, is stale. This
+> documentation reflects the tree as it actually stands.
