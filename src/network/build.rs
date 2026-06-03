@@ -108,6 +108,7 @@ pub fn build_network<R: Rng + RngExt>(builder: NetworkBuilder, rng: &mut R) -> N
         dendrites,
         somas,
         axons: Axon { axon_targets, axon_offsets },
+        ranges,
     }
 }
 
