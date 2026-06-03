@@ -3,11 +3,11 @@ pub const H_ALPHA: u8 = 30; // minimum activity of a synapse to enact weight upd
 pub const H_BETA: i16 = 4; // i16 to avoid conversions when calculating delta_weight
 
 // decay constants for the bit shift decay function
-pub const ALPHA_DECAY: u8 = 8; // alpha decay term. Halves every 2^8 = 256 ticks, so active synapses can maintain high alpha for hundreds of ticks after a spike.
+pub const ALPHA_DECAY: u8 = 11; // alpha decay term. Halves every 2^11 = 2048 ticks.
 pub const X_DECAY: u8 = 4; // x decay term for dendritic integration. Halves every 2^4 = 16 x units
-pub const BASAL_DECAY: u8 = 10; // basal dendrite voltage decay. Halves every 2^10 = 1024 ticks.
-pub const APICAL_DECAY: u8 = 12; // apical dendrite voltage decay. Halves every 2^12 = 4096 ticks.
-pub const SOMATIC_DECAY: u8 = 15; // soma voltage decay. Halves every 2^15 = 32768 ticks.
+pub const BASAL_DECAY: u8 = 9; // basal dendrite voltage decay. Halves every 2^9 = 512 ticks.
+pub const APICAL_DECAY: u8 = 11; // apical dendrite voltage decay. Halves every 2^11 = 2048 ticks.
+pub const SOMATIC_DECAY: u8 = 10; // soma voltage decay. Halves every 2^10 = 1024 ticks.
 
 pub const SOMA_V_RESET: i8 = -32; // reset potential for the soma after a spike; also the minimum potential it can take
 
