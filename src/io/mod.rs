@@ -11,5 +11,7 @@
 //! event queue; the network's own machinery (axon CSR, handlers) carries them from there.
 
 pub mod input;
+pub mod output;
 
 pub use input::{InputSpace, SensoryMap, Shape, input_config};
+pub use output::{Effector, ReadoutMap, output_config};

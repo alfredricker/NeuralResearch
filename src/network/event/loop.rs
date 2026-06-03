@@ -30,6 +30,11 @@ pub fn run_event_loop(
     // axon
     axon_targets: &[u32],
     axon_offsets: &[u32],
+    // readout — per-neuron AP accumulator (length = n_neurons). The trial harness zeroes it at
+    // each trial boundary; an Effector (crate::io) reads its output-range window after the queue
+    // drains. Counts EVERY somatic spike — including the ones an InputSpace asserts on input
+    // neurons — so it also serves as a full-network activity recorder.
+    spike_counts: &mut [u32],
 ) {
     let producer = queue.producer_handle();
     let events = queue.drain();
@@ -38,6 +43,8 @@ pub fn run_event_loop(
         match e.event_type {
             SOMATIC_SPIKE => {
                 let n = e.source as usize;
+                // accumulate the burst (AP count, carried in the payload) for readout
+                spike_counts[n] += e.payload.max(0) as u32;
                 let (s_start, s_end) = neuron_synapse_range(n, dendrite_offsets, synapse_offsets);
                 let axons = &axon_targets[axon_offsets[n] as usize..axon_offsets[n + 1] as usize];
                 handle_somatic_spike(
