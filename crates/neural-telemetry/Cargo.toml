@@ -1,0 +1,14 @@
+[package]
+name = "neural-telemetry"
+version = "0.1.0"
+edition = "2024"
+
+# Recording layer. This is where serde lives — `neural-sim` stays serialization-free so the
+# GPU port stays clean. Implements `neural_sim::telemetry::TelemetrySink` by copying borrowed
+# state out into owned, serializable records and writing the `.ntr` recording format.
+[dependencies]
+neural-sim.workspace = true
+serde.workspace = true
+postcard.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

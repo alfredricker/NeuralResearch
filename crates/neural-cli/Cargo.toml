@@ -1,0 +1,15 @@
+[package]
+name = "neural-cli"
+version = "0.1.0"
+edition = "2024"
+
+# Headless driver: build a network, run trials, write `.ntr` recordings for the dashboard to
+# replay. Currently a stub — the trial harness (wire Network + InputSpace + Effector + the
+# event loop) lands in the next step; for now it only proves the crate wiring links.
+[dependencies]
+neural-sim.workspace = true
+neural-telemetry.workspace = true
+
+[[bin]]
+name = "neural-cli"
+path = "src/main.rs"

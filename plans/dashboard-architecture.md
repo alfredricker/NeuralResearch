@@ -1,6 +1,24 @@
 # Research Dashboard — Architecture & Build Plan
 
-Status: **planned, not started**. Drafted 2026-06-09. Pick up next session.
+Status: **Phase 1 partially done** (2026-06-10): workspace split + telemetry tap landed.
+Drafted 2026-06-09.
+
+## Progress log
+
+- **2026-06-10 — workspace + telemetry tap.** Single crate → workspace. Package renamed
+  `research` → `neural-sim` (now lib-only; hello-world `main.rs` dropped). Added
+  `neural-sim/src/telemetry.rs`: `TelemetrySink` trait, zero-cost `NullSink`, borrowed
+  `NetworkView`. `run_event_loop` now takes `&mut impl TelemetrySink` and calls `on_event`
+  per drained event (no caller existed, so no call sites broke). New `neural-telemetry`
+  crate holds all serde: `EventRecord`/`Snapshot`/`Manifest`/`Recording` + `RecordingSink`
+  writing the `.ntr` (postcard body) + `.ntr.json` (manifest) pair. New `neural-cli` is a
+  stub binary (links the crates; trial harness not built yet). Workspace compiles.
+  **Still TODO in Phase 1:** the trial harness (wire `Network` + `InputSpace` + `Effector`
+  + the loop), then real recording generation in `neural-cli`, then `on_snapshot` wiring
+  (no clock/periodic trigger yet — keyframes are caller-driven for now).
+- **Pre-existing test breakage (not from this work):** 6 of 90 `neural-sim` tests fail in
+  `neuron::synapse` (alpha decay) and `neuron::dendrite` (voltage leak). Confirmed via
+  `git diff -M` that those files were pure renames — red before the refactor. Fix separately.
 
 Goal: a personal research dashboard for the spiking-net project that (1) visualizes
 simulations, (2) reads/edits the markdown + LaTeX docs and notes in WYSIWYG, and

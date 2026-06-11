@@ -3,9 +3,13 @@ use crate::network::event::queue::EventQueue;
 use crate::network::event::handlers::{handle_somatic_spike, handle_dendritic_spike, handle_synapse_signal, handle_soma_signal};
 use crate::network::event::slice::{neuron_synapse_range, dendrite_synapse_range};
 use crate::neuron::dendrite::synapse_to_dendrite;
+use crate::telemetry::TelemetrySink;
 
 pub fn run_event_loop(
     queue: &EventQueue,
+    // telemetry observer. Pass `&mut NullSink` in production/GPU builds — every call inlines
+    // away. The dashboard passes a RecordingSink that traces events into a `.ntr` file.
+    sink: &mut impl TelemetrySink,
     // soma
     soma_potentials: &mut [i8],
     soma_thresholds: &[i8],
@@ -40,6 +44,7 @@ pub fn run_event_loop(
     let events = queue.drain();
 
     for e in events {
+        sink.on_event(e); // fine-grained trace; NullSink inlines this to nothing
         match e.event_type {
             SOMATIC_SPIKE => {
                 let n = e.source as usize;

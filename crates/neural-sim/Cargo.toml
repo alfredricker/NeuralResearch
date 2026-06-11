@@ -1,0 +1,11 @@
+[package]
+name = "neural-sim"
+version = "0.1.0"
+edition = "2024"
+
+# Core SoA simulation. Deliberately serde-free so the eventual GPU port stays clean —
+# the only outward seam is the `TelemetrySink` trait (telemetry.rs), which borrows state
+# without owning or serializing it. Recording/serialization lives in `neural-telemetry`.
+[dependencies]
+rand.workspace = true
+thiserror.workspace = true
