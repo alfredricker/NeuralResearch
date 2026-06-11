@@ -149,14 +149,19 @@ concept ↔ code ↔ viz: a doc chapter can deep-link to a handler or embed a li
 5. **The research loop.** Constant tuner → re-run via `neural-cli` → load two recordings →
    diff side by side. A/B a hyperparameter change and *see* the effect on rasters/accuracy.
 
-## Coupled prerequisite: three loop gaps (from docs/09-gaps)
+## Coupled prerequisite: loop gaps (from docs/09-gaps) — RECHECKED 2026-06-10
 
-Replay needs real data, so these get fixed in Phase 1, not deferred:
-- `run_event_loop` does **not** accumulate `spike_counts` (declared, never incremented) —
-  `Effector::predict()` has nothing to read.
-- Ring buffer **never advances `head`** — slots not recycled; multi-trial loop overruns.
+Status corrected against current code; this section was drafted before the sim evolved:
+- ~~`run_event_loop` does not accumulate `spike_counts`~~ — **CLOSED.** It now increments
+  `spike_counts[n] += e.payload.max(0)` on `SOMATIC_SPIKE` (`loop.rs`). (Also: `FORWARD_AP`
+  no longer exists; the event types are now `SOMATIC_SPIKE`/`DENDRITIC_SPIKE`/`SOMA_SIGNAL`/
+  `SYNAPSE_SIGNAL`.)
+- Ring buffer **never advances `head`** — `EventQueue::drain` reads `head..tail` but nothing
+  advances `head`; slots not recycled, multi-trial loop overruns. **STILL OPEN** — fix when
+  building the multi-trial harness.
 - **No clock advance** — only `InputSpace::encode` writes fresh timestamps; cascades run at
-  frozen time, no decay between wavefronts.
+  frozen time, no decay between wavefronts. **STILL OPEN** — also gates periodic `on_snapshot`
+  (no natural keyframe trigger without a clock).
 
 ## Alternative considered: egui (rejected)
 
