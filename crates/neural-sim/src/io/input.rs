@@ -226,8 +226,10 @@ fn intensity_to_burst(intensity: u8) -> i16 {
 }
 
 /// A timestamp uniformly within `[base_ts, base_ts + window)`, wrapping like the rest of the
-/// timeline. `window <= 1` degenerates to `base_ts` (avoids an empty sampling range).
-fn jitter(base_ts: u16, window: u16, rng: &mut impl RngExt) -> u16 {
+/// timeline. `window <= 1` degenerates to `base_ts` (avoids an empty sampling range). Shared with
+/// the efferent side so the supervised teaching volley ([`Effector::teach`](crate::io::output::Effector::teach))
+/// jitters identically to the input volley.
+pub(crate) fn jitter(base_ts: u16, window: u16, rng: &mut impl RngExt) -> u16 {
     if window <= 1 {
         base_ts
     } else {

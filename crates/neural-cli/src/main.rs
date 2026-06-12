@@ -43,6 +43,8 @@ struct Args {
     fan_in_hidden: u32,
     fan_in_output: u32,
     seed: u64,
+    train: bool,
+    teach_strength: i16,
 }
 
 impl Default for Args {
@@ -58,6 +60,8 @@ impl Default for Args {
             fan_in_hidden: 64,
             fan_in_output: 32,
             seed: 0xC0FFEE,
+            train: false,
+            teach_strength: 24,
         }
     }
 }
@@ -79,9 +83,16 @@ OPTIONS:
     --fan-in-hidden <K>      pixels -> each hidden    [default: 64]
     --fan-in-output <K>      hidden -> each output    [default: 32]
     --seed <N>               RNG seed                 [default: 12648430]
+    --train                  supervised: drive the correct output each tick (§8.5 Option 1)
+    --teach-strength <V>     teacher voltage/tick     [default: 24]
     -h, --help               print this help
 
-MNIST files must be gunzip'd idx-ubyte (not .gz).";
+MNIST files must be gunzip'd idx-ubyte (not .gz).
+
+With --train, each trial drives the labelled output neuron to burst so its afferent
+hidden->output weights undergo LTP. NOTE: the teacher inflates the output spike counts, so the
+per-trial prediction printed under --train is teacher-contaminated, not a measure of accuracy —
+re-run the same recordings without --train to read honest predictions.";
 
 fn parse_args() -> Result<Option<Args>, String> {
     let mut a = Args::default();
@@ -100,6 +111,8 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--fan-in-hidden" => a.fan_in_hidden = val()?.parse().map_err(|e| format!("--fan-in-hidden: {e}"))?,
             "--fan-in-output" => a.fan_in_output = val()?.parse().map_err(|e| format!("--fan-in-output: {e}"))?,
             "--seed" => a.seed = val()?.parse().map_err(|e| format!("--seed: {e}"))?,
+            "--train" => a.train = true,
+            "--teach-strength" => a.teach_strength = val()?.parse().map_err(|e| format!("--teach-strength: {e}"))?,
             other => return Err(format!("unknown argument: {other} (try --help)")),
         }
     }
@@ -209,13 +222,14 @@ fn run() -> Result<(), String> {
     let mut rng = SmallRng::seed_from_u64(args.seed);
     let mut clock: u16 = 0;
     let mut spike_counts = vec![0u32; network.n_neurons()];
-    let cfg = TrialConfig { ticks: args.ticks, window: args.window };
+    let cfg = TrialConfig { ticks: args.ticks, window: args.window, teach_strength: args.teach_strength };
     let mut correct = 0usize;
 
     eprintln!(
-        "network: {} input -> {} hidden -> {} output ({} neurons, {} dendrites, {} synapse slots)",
+        "network: {} input -> {} hidden -> {} output ({} neurons, {} dendrites, {} synapse slots){}",
         input.n_neurons(), args.hidden, effector.n_neurons(),
         network.n_neurons(), network.n_dendrites(), network.n_synapses(),
+        if args.train { format!(" — TRAINING (teach_strength={})", args.teach_strength) } else { String::new() },
     );
 
     for t in 0..n_trials {
@@ -238,8 +252,10 @@ fn run() -> Result<(), String> {
         spike_counts.iter_mut().for_each(|c| *c = 0);
         sink.on_snapshot(&network.view(clock, &spike_counts));
 
+        // training trials drive the correct output neuron (supervised LTP); eval trials don't.
+        let teach = if args.train { Some(label) } else { None };
         let prediction = run_trial(
-            &mut network, &queue, &input, &effector, frame, &mut clock, cfg,
+            &mut network, &queue, &input, &effector, frame, teach, &mut clock, cfg,
             &mut rng, &mut sink, &mut spike_counts,
         );
 
@@ -260,10 +276,18 @@ fn run() -> Result<(), String> {
         eprintln!("trial {t:05}: label={label} prediction={prediction:?}");
     }
 
-    eprintln!(
-        "done: {n_trials} trials, {correct} correct ({:.1}%) — recordings in {}",
-        100.0 * correct as f64 / n_trials as f64,
-        args.out.display()
-    );
+    let pct = 100.0 * correct as f64 / n_trials as f64;
+    if args.train {
+        eprintln!(
+            "done: {n_trials} training trials ({correct}/{n_trials} matched the teacher — \
+             NOT accuracy; re-run without --train to evaluate) — recordings in {}",
+            args.out.display()
+        );
+    } else {
+        eprintln!(
+            "done: {n_trials} trials, {correct} correct ({pct:.1}%) — recordings in {}",
+            args.out.display()
+        );
+    }
     Ok(())
 }

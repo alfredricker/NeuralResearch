@@ -16,8 +16,12 @@
 use std::ops::Range;
 use std::sync::LazyLock;
 
+use rand::RngExt;
+
 use crate::constants::MSLR;
+use crate::io::input::jitter;
 use crate::math::sample::{SamplerI8, SamplerU8};
+use crate::network::event::{Event, EventProducer};
 use crate::neuron::config::NeuronConfig;
 
 // ============================================================================================
@@ -167,6 +171,46 @@ impl Effector {
         }
         // position() returns the FIRST occurrence → ties break to the lowest class index.
         Some(activity.iter().position(|&a| a == best).unwrap() as u32)
+    }
+
+    /// Inject a supervised teaching signal for the **correct** class (§8.5 Option 1, direct
+    /// injection). The efferent mirror of [`InputSpace::encode`](crate::io::input::InputSpace::encode):
+    /// where `encode` *asserts* `SOMATIC_SPIKE`s on input neurons, `teach` pushes a depolarizing
+    /// `SOMA_SIGNAL` — a "teacher current" — on the labelled class's output neuron(s), forcing them
+    /// to burst.
+    ///
+    /// Why this drives learning: a burst raises the neuron's `beta`, and `handle_somatic_spike`'s
+    /// back-propagating sweep applies LTP (`w += (beta − H_BETA)·alpha/lr`) across that neuron's
+    /// afferent synapses — i.e. the hidden→output connections whose `alpha` eligibility is high
+    /// because their hidden neuron just fired for *this* frame. Teaching the right answer therefore
+    /// strengthens exactly the features that predicted it. Routing through `SOMA_SIGNAL` rather than
+    /// a raw `SOMATIC_SPIKE` is deliberate: only `update_soma_potential` raises `beta`, and `beta`
+    /// is what gates the weight update.
+    ///
+    /// Call once per tick during *training* trials, right after `encode`, with the trial's true
+    /// label. `strength` is the per-event voltage delta — set it at or above the output
+    /// `soma_threshold` so the neuron reliably bursts (larger ⇒ bigger burst ⇒ faster `beta` climb).
+    /// Timestamps jitter across `[base_ts, base_ts + window)` to align with the input volley.
+    ///
+    /// **Caveat:** the teacher's own spikes land in `spike_counts`, so [`predict`](Self::predict)
+    /// over a *taught* trial is teacher-contaminated and not a measure of learning. Read accuracy
+    /// from a separate, un-taught evaluation pass.
+    ///
+    /// Panics if `label` is not a valid class index, or if called before [`bind`](Self::bind).
+    pub fn teach(
+        &self,
+        label: u32,
+        base_ts: u16,
+        window: u16,
+        strength: i16,
+        producer: &EventProducer,
+        rng: &mut impl RngExt,
+    ) {
+        let base = self.neuron_range.start;
+        for &local in self.readout.members(label as usize) {
+            let ts = jitter(base_ts, window, rng);
+            producer.push(Event::soma_signal(base + local, ts, strength));
+        }
     }
 }
 
