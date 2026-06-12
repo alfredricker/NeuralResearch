@@ -3,6 +3,7 @@ pub const DENDRITIC_SPIKE: u8 = 1; // source = dendrite_idx, payload unused
 pub const SOMA_SIGNAL:     u8 = 2; // source = neuron_idx,   payload = v_s (voltage delta to integrate)
 pub const SYNAPSE_SIGNAL:  u8 = 3; // source = synapse_idx,  payload = burst (one queued AP delivery per target synapse)
 
+#[derive(Clone, Copy)]
 pub struct Event {
     pub event_type: u8,  // not an enum because buffer is shared with gpu kernels
     pub source: u32,     // neuron_idx, except DENDRITIC_SPIKE (dendrite_idx) and SYNAPSE_SIGNAL (synapse_idx)

@@ -41,10 +41,13 @@ pub fn run_event_loop(
     spike_counts: &mut [u32],
 ) {
     let producer = queue.producer_handle();
-    let events = queue.drain();
 
-    for e in events {
-        sink.on_event(e); // fine-grained trace; NullSink inlines this to nothing
+    // One wavefront per call: process exactly the events queued on entry, advancing the queue's
+    // head past them. Events the handlers push below land beyond this wavefront's tail and are
+    // picked up by the next call — so a cascade marches forward one generation per call, and the
+    // caller's clock advances between calls (see crate::trial). `e` is an owned Copy of the event.
+    for e in queue.next_wavefront() {
+        sink.on_event(&e); // fine-grained trace; NullSink inlines this to nothing
         match e.event_type {
             SOMATIC_SPIKE => {
                 let n = e.source as usize;

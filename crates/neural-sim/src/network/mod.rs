@@ -6,10 +6,13 @@ use std::ops::Range;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use crate::network::build::{NetworkBuilder, build_network};
+use crate::network::event::queue::EventQueue;
+use crate::network::event::r#loop::run_event_loop;
 use crate::neuron::dendrite::Dendrite;
 use crate::neuron::soma::Soma;
 use crate::neuron::synapse::Synapse;
 use crate::neuron::axon::Axon;
+use crate::telemetry::{NetworkView, TelemetrySink};
 
 // SoA pattern for efficient GPU memory access.
 // Each field is a vector of length equal to the total number of neurons in the network.
@@ -35,5 +38,90 @@ impl Network {
     /// input space's local coordinates resolve to concrete global neuron indices.
     pub fn population_range(&self, id: u32) -> Range<u32> {
         self.ranges[id as usize].clone()
+    }
+
+    /// Total neuron count — the length of every soma array and of the `spike_counts` accumulator
+    /// the trial harness allocates.
+    pub fn n_neurons(&self) -> usize {
+        self.somas.soma_potentials.len()
+    }
+
+    /// Total dendrite count across the network (for recording manifests / sizing).
+    pub fn n_dendrites(&self) -> usize {
+        self.dendrites.dendrite_activities.len()
+    }
+
+    /// Total synapse-slot count across the network, live + dead tail (for recording manifests).
+    pub fn n_synapses(&self) -> usize {
+        self.synapses.synapse_weights.len()
+    }
+
+    /// Drive the event loop forward by exactly **one wavefront** against this network's state.
+    /// Threads `sink` for telemetry and accumulates somatic spikes into `spike_counts` (length must
+    /// equal [`n_neurons`](Self::n_neurons)). This is the single seam the trial harness drives once
+    /// per tick — it exists because the SoA arrays are private to the network; the loop's wide
+    /// parameter list stays an internal detail.
+    pub fn step(
+        &mut self,
+        queue: &EventQueue,
+        sink: &mut impl TelemetrySink,
+        spike_counts: &mut [u32],
+    ) {
+        run_event_loop(
+            queue,
+            sink,
+            // soma
+            &mut self.somas.soma_potentials,
+            &self.somas.soma_thresholds,
+            &mut self.somas.soma_betas,
+            &mut self.somas.soma_last_events,
+            &self.somas.soma_lrs,
+            // dendrite
+            &self.dendrites.dendrite_constants,
+            &mut self.dendrites.dendrite_last_events,
+            &mut self.dendrites.dendrite_activities,
+            &self.dendrites.dendrite_thresholds,
+            &self.dendrites.dendrite_is_apical,
+            &self.dendrites.live_synapse_counts,
+            &self.dendrites.synapse_offsets,
+            &self.dendrites.dendrite_to_neuron,
+            // synapse
+            &mut self.synapses.synapse_weights,
+            &mut self.synapses.synapse_alphas,
+            &mut self.synapses.synapse_last_events,
+            &self.synapses.synapse_x,
+            &self.dendrites.synapse_offsets,
+            // axon
+            &self.axons.axon_targets,
+            &self.axons.axon_offsets,
+            // readout
+            spike_counts,
+        );
+    }
+
+    /// Clear the transient per-trial dynamics — soma potentials and dendrite activities — back to
+    /// rest, isolating one trial from the next. Learning state (`synapse_weights`, `synapse_alphas`,
+    /// `soma_betas`) **persists by design**, and the `*_last_events` timestamp bookkeeping is left
+    /// untouched so a monotonic clock keeps lazy decay correct across the boundary. `spike_counts`
+    /// is the harness's to zero (it does so at the start of each trial).
+    pub fn reset_dynamics(&mut self) {
+        self.somas.soma_potentials.iter_mut().for_each(|v| *v = 0);
+        self.dendrites.dendrite_activities.iter_mut().for_each(|v| *v = 0);
+    }
+
+    /// Borrow this network's SoA arrays into a read-only [`NetworkView`] for a telemetry keyframe
+    /// at `timestamp`. `spike_counts` (harness-owned) completes the readout channel. Constructing
+    /// the view copies nothing — it is the seam a `RecordingSink` reads to snapshot state.
+    pub fn view<'a>(&'a self, timestamp: u16, spike_counts: &'a [u32]) -> NetworkView<'a> {
+        NetworkView {
+            timestamp,
+            soma_potentials: &self.somas.soma_potentials,
+            soma_betas: &self.somas.soma_betas,
+            dendrite_activities: &self.dendrites.dendrite_activities,
+            dendrite_is_apical: &self.dendrites.dendrite_is_apical,
+            synapse_weights: &self.synapses.synapse_weights,
+            synapse_alphas: &self.synapses.synapse_alphas,
+            spike_counts,
+        }
     }
 }

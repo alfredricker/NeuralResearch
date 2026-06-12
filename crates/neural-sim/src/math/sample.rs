@@ -155,16 +155,6 @@ mod tests {
         assert!((0..N).all(|_| s.sample(&mut rng) > 0));
     }
 
-    #[test]
-    fn i8_stays_in_type_range() {
-        let mut rng = SmallRng::seed_from_u64(SEED);
-        let s = SamplerI8::new(0, 60);
-        for _ in 0..N {
-            let v = s.sample(&mut rng);
-            assert!(v >= i8::MIN && v <= i8::MAX);
-        }
-    }
-
     // --- SamplerU8 ---
 
     #[test]
