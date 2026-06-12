@@ -3,12 +3,13 @@ name = "neural-cli"
 version = "0.1.0"
 edition = "2024"
 
-# Headless driver: build a network, run trials, write `.ntr` recordings for the dashboard to
-# replay. Currently a stub — the trial harness (wire Network + InputSpace + Effector + the
-# event loop) lands in the next step; for now it only proves the crate wiring links.
+# Headless driver: build an input -> hidden -> output network, run MNIST trials through the
+# neural-sim trial harness with a RecordingSink, and write one `.ntr` recording per trial for the
+# dashboard to replay.
 [dependencies]
 neural-sim.workspace = true
 neural-telemetry.workspace = true
+rand.workspace = true
 
 [[bin]]
 name = "neural-cli"

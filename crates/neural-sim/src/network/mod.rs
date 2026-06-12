@@ -83,7 +83,9 @@ impl Network {
             &self.dendrites.dendrite_thresholds,
             &self.dendrites.dendrite_is_apical,
             &self.dendrites.live_synapse_counts,
-            &self.dendrites.synapse_offsets,
+            // `dendrite_offsets` param: indexed by NEURON (neuron -> first dendrite), so it is the
+            // soma's map, not the dendrite->synapse one passed as `synapse_offsets` below.
+            &self.somas.dendrite_offsets,
             &self.dendrites.dendrite_to_neuron,
             // synapse
             &mut self.synapses.synapse_weights,

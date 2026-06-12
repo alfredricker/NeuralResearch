@@ -80,6 +80,12 @@ pub struct Manifest {
     pub constants: std::collections::BTreeMap<String, i64>,
     /// `event_index` of each keyframe, in order — the seek index for lazy replay.
     pub keyframe_offsets: Vec<u32>,
+    /// Supervised label for this trial's frame, if known (e.g. the MNIST digit). `None` for
+    /// unlabeled runs.
+    pub true_label: Option<u32>,
+    /// The effector's argmax prediction for this trial, set after the trial runs. `None` if the
+    /// output layer stayed silent (or the trial has not been scored yet).
+    pub prediction: Option<u32>,
 }
 
 /// The serialized body: keyframes + the event trace between them.
@@ -126,6 +132,11 @@ impl RecordingSink {
     /// Borrow the buffered recording (e.g. for tests or in-process replay without a round-trip).
     pub fn recording(&self) -> &Recording {
         &self.recording
+    }
+
+    /// Mutable access to the manifest, e.g. to record the prediction once a trial has been scored.
+    pub fn manifest_mut(&mut self) -> &mut Manifest {
+        &mut self.manifest
     }
 }
 
