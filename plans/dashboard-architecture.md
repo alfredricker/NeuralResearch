@@ -6,6 +6,30 @@ Drafted 2026-06-09.
 
 ## Progress log
 
+- **2026-06-11 — replay viewer (Phase 3, first cut).** Dashboard now has two top-level modes.
+  **Simulation mode**: a recording list (left) reads `recordings/*.ntr.json`; selecting one calls a
+  new `load_recording` Tauri command that decodes the `.ntr` pair via `neural_telemetry::load`
+  (new reader, the inverse of `RecordingSink::write`) and **aggregates the ~340k-event trace in
+  Rust** into a compact digest — the webview never holds the raw trace. The center panel renders
+  the two chosen views: **run summary + prediction** (label, true-vs-pred verdict, dims/constants,
+  and a per-digit output-spike bar chart whose argmax = the prediction — verified to match the
+  manifest's `prediction`) and **somatic spikes over time** (per-tick line chart, ticks normalized
+  to the trial-start clock since the clock is monotonic across trials). A layer-activity readout
+  (input/hidden/output spike totals + hidden sparsity, e.g. 197/200) rides along from the post
+  keyframe. An **expandable right panel** writes per-run markdown notes to `notes/runs/<label>.md`
+  (reuses the docs trust boundary; `save_doc` now `create_dir_all`s parents). **Reading mode**: the
+  former editor, now three independently collapsible panels — file selection / editor / reader.
+  Added a third doc root `science/` for LaTeX, and `list_docs` now recurses (so `notes/runs/*` and
+  `science/*` surface). Charts are hand-rolled SVG (no new deps). Verified: `svelte-check` clean,
+  backend compiles on macOS (WKWebView, no nix shell needed), digest math checked against real
+  recordings (somatic-trace total == sum of per-layer post-keyframe counts).
+  **Deferred (next, both already scoped):** (1) **layer activity pre/post** — diff the two
+  keyframes' `spike_counts`/state to show what the trial's plasticity changed; (2) **weight-change
+  histogram** — distribution of `synapse_weights` and `synapse_alphas` deltas between the pre/post
+  keyframes (the learning signal). Both need the pre-keyframe surfaced through `load_recording`
+  (currently only the post keyframe is read) — cheap extension. Also still wanted from the original
+  view table: spike raster, weight matrix, connectivity graph, constant-tuner re-run loop.
+
 - **2026-06-11 — trial harness + recordings (Phase 1 complete).** Closed the wavefront/head gap:
   `EventQueue::next_wavefront()` captures `[head, tail)`, yields events by value (`Event` is now
   `Copy`), and advances `head` as it consumes — fixing slot recycling, ring wrap, multi-trial
