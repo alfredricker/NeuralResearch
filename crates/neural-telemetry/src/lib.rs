@@ -140,6 +140,17 @@ impl RecordingSink {
     }
 }
 
+/// Read back the `<stem>.ntr` body + `<stem>.ntr.json` manifest a [`RecordingSink::write`] produced.
+/// The inverse of `write`: postcard-decodes the body and JSON-decodes the manifest. `stem` is the
+/// same extension-less path passed to `write` (e.g. `recordings/trial-00042`). The dashboard reads
+/// recordings through this so it never depends on postcard or the on-disk layout directly.
+pub fn load(stem: impl AsRef<Path>) -> Result<(Manifest, Recording), RecordingError> {
+    let stem = stem.as_ref();
+    let manifest = serde_json::from_slice(&std::fs::read(stem.with_extension("ntr.json"))?)?;
+    let recording = postcard::from_bytes(&std::fs::read(stem.with_extension("ntr"))?)?;
+    Ok((manifest, recording))
+}
+
 impl TelemetrySink for RecordingSink {
     fn on_event(&mut self, event: &Event) {
         self.recording.events.push(EventRecord::from(event));
