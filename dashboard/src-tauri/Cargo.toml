@@ -1,7 +1,12 @@
+# Standalone workspace: this table stops Cargo from walking up into the sim's workspace at the repo
+# root. Keeping the Tauri app out of that workspace means `cargo test --workspace` on the sim never
+# tries to build the WebKit-linked backend (which only compiles inside the nix dev shell).
+[workspace]
+
 [package]
 name = "dashboard"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Neural research dashboard"
 authors = ["you"]
 edition = "2021"
 
@@ -22,4 +27,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# The whole point of the Tauri choice: the backend links the sim crates directly and reads their
+# flat SoA state in-process, no serialization boundary. Unused in the docs pillar (Phase 2) beyond
+# the `sim_constants` proof-of-link command; the replay/run-trial commands (Phase 3) build on these.
+neural-sim = { path = "../../crates/neural-sim" }
+neural-telemetry = { path = "../../crates/neural-telemetry" }
 
