@@ -1,9 +1,30 @@
 # Research Dashboard — Architecture & Build Plan
 
-Status: **Phase 1 partially done** (2026-06-10): workspace split + telemetry tap landed.
+Status: **Phase 1 DONE** (2026-06-11): trial harness + MNIST recording generation landed; the
+two blocking loop gaps are closed. Workspace split + telemetry tap landed 2026-06-10.
 Drafted 2026-06-09.
 
 ## Progress log
+
+- **2026-06-11 — trial harness + recordings (Phase 1 complete).** Closed the wavefront/head gap:
+  `EventQueue::next_wavefront()` captures `[head, tail)`, yields events by value (`Event` is now
+  `Copy`), and advances `head` as it consumes — fixing slot recycling, ring wrap, multi-trial
+  reuse, AND cascade propagation in one change. (The old `run_event_loop` called `drain()` once and
+  iterated a fixed slice, so handler-pushed cascade events were *never processed* and `head` never
+  moved.) `run_event_loop` now drains exactly one wavefront per call. Added the trial API on
+  `Network` (`step`/`reset_dynamics`/`view`/`n_neurons`/`n_dendrites`/`n_synapses`) since the SoA
+  fields are private, and `neural_sim::trial::run_trial` (the §8.4 per-tick loop: encode → step →
+  advance a **monotonic** clock; clock is monotonic across trials so persisted alpha/beta decay
+  correctly). `neural-cli` now builds input(784)→hidden(N)→output(10), reads MNIST idx-ubyte (new
+  `mnist.rs`, no deps), and writes one `.ntr`+`.ntr.json` per trial with pre/post keyframes;
+  manifest gained `true_label`/`prediction`. Verified end-to-end on synthetic idx data: the full
+  3-layer cascade now fires the output layer (predictions are `Some(_)`, impossible before the fix);
+  recordings are well-formed (~0.5 MB postcard body + readable manifest). Bug found & fixed en
+  route: `Network::step` must pass `Soma::dendrite_offsets` (neuron→dendrite), not
+  `Dendrite::synapse_offsets`, as the loop's `dendrite_offsets` param. **Still open / next:**
+  supervised feedback (§8.5 Option 1) for actual learning; per-hop within-cascade clock advance
+  (handlers still thread one timestamp through a cascade — see note below); the 6 pre-existing
+  decay-math test failures.
 
 - **2026-06-10 — workspace + telemetry tap.** Single crate → workspace. Package renamed
   `research` → `neural-sim` (now lib-only; hello-world `main.rs` dropped). Added
@@ -156,12 +177,18 @@ Status corrected against current code; this section was drafted before the sim e
   `spike_counts[n] += e.payload.max(0)` on `SOMATIC_SPIKE` (`loop.rs`). (Also: `FORWARD_AP`
   no longer exists; the event types are now `SOMATIC_SPIKE`/`DENDRITIC_SPIKE`/`SOMA_SIGNAL`/
   `SYNAPSE_SIGNAL`.)
-- Ring buffer **never advances `head`** — `EventQueue::drain` reads `head..tail` but nothing
-  advances `head`; slots not recycled, multi-trial loop overruns. **STILL OPEN** — fix when
-  building the multi-trial harness.
-- **No clock advance** — only `InputSpace::encode` writes fresh timestamps; cascades run at
-  frozen time, no decay between wavefronts. **STILL OPEN** — also gates periodic `on_snapshot`
-  (no natural keyframe trigger without a clock).
+- ~~Ring buffer **never advances `head`**~~ — **CLOSED (2026-06-11).** `EventQueue::next_wavefront`
+  captures `[head, tail)` and advances `head` as it is consumed; `run_event_loop` uses it. Slots
+  recycle, the wavefront read un-wraps the ring correctly, and multi-trial reuse is regression-
+  tested (`queue.rs`, `trial.rs`). This also fixed cascade propagation (the old `drain()`-once
+  loop never processed handler-pushed events at all).
+- **Clock advance** — **PARTIALLY CLOSED (2026-06-11).** The trial harness now advances a clock
+  once per wavefront (`trial::run_trial`, §8.4), monotonic across trials, so successive input
+  volleys decay relative to each other and keyframes have an ordering. STILL OPEN: handlers thread
+  one timestamp straight through a single cascade (no per-hop propagation delay), so dynamics
+  *within* one cascade are still time-frozen. Closing that is a modeling change (pick a per-hop
+  delay) touching every handler push — deferred, not needed for recording generation. Keyframes are
+  caller-driven (the harness snapshots pre/post trial), so this no longer gates `on_snapshot`.
 
 ## Alternative considered: egui (rejected)
 
