@@ -1,28 +1,27 @@
 //! Headless recording generator for the research dashboard.
 //!
-//! Builds an `input(784) -> hidden(N) -> output(10)` spiking network, presents MNIST digits through
-//! the `neural-sim` trial harness with a [`RecordingSink`], and writes one `.ntr` recording per
-//! trial (event trace + a pre/post keyframe pair) into the output directory for the dashboard to
-//! replay. Forward-pass only for now — unsupervised plasticity (BaP/gamma) still evolves the
-//! weights across trials; supervised feedback (docs/08-mnist-pipeline.md §8.5) is the next step.
+//! Builds a spiking network, presents a stimulus stream through the `neural-sim` trial harness with
+//! a [`RecordingSink`], and writes one `.ntr` recording per trial (event trace + a pre/post keyframe
+//! pair) into the output directory for the dashboard to replay. Forward-pass only for now —
+//! unsupervised plasticity (BaP/gamma) still evolves the weights across trials; supervised feedback
+//! (docs/08-mnist-pipeline.md §8.5) is the next step.
+//!
+//! The trial loop here is experiment-agnostic: it drives whatever [`Experiment`] it is handed.
+//! Everything specific to the MNIST task — the idx reader, the hidden-cell type, the input→output
+//! wiring — lives in [`mnist`]; argument parsing lives in [`args`].
 
+mod args;
 mod mnist;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
-use neural_sim::io::{Effector, InputSpace, Shape, input_config, output_config};
-use neural_sim::math::sample::{SamplerI8, SamplerU8};
+use neural_sim::io::{Effector, InputSpace};
 use neural_sim::network::Network;
-use neural_sim::network::build::NetworkBuilder;
 use neural_sim::network::event::EventQueue;
-use neural_sim::network::topology::conn::ConnRule;
-use neural_sim::neuron::config::NeuronConfig;
-use neural_sim::neuron::dendrite::Compartment;
 use neural_sim::telemetry::TelemetrySink;
 use neural_sim::trial::{TrialConfig, run_trial};
 use neural_telemetry::{Manifest, RecordingSink};
@@ -32,111 +31,22 @@ use neural_telemetry::{Manifest, RecordingSink};
 /// across a few pipeline generations). 2^18 ≈ 262k slots ≈ 3 MB — ample for the default topology.
 const QUEUE_CAPACITY: usize = 1 << 18;
 
-struct Args {
-    images: PathBuf,
-    labels: PathBuf,
-    out: PathBuf,
-    trials: usize,
-    hidden: u32,
-    ticks: u16,
-    window: u16,
-    fan_in_hidden: u32,
-    fan_in_output: u32,
-    seed: u64,
-    train: bool,
-    teach_strength: i16,
-}
-
-impl Default for Args {
-    fn default() -> Self {
-        Self {
-            images: PathBuf::from("data/train-images-idx3-ubyte"),
-            labels: PathBuf::from("data/train-labels-idx1-ubyte"),
-            out: PathBuf::from("recordings"),
-            trials: 20,
-            hidden: 200,
-            ticks: 100,
-            window: 8,
-            fan_in_hidden: 64,
-            fan_in_output: 32,
-            seed: 0xC0FFEE,
-            train: false,
-            teach_strength: 24,
-        }
-    }
-}
-
-const USAGE: &str = "\
-neural-cli — generate .ntr recordings from MNIST trials
-
-USAGE:
-    neural-cli [OPTIONS]
-
-OPTIONS:
-    --images <PATH>          idx3-ubyte image file   [default: data/train-images-idx3-ubyte]
-    --labels <PATH>          idx1-ubyte label file   [default: data/train-labels-idx1-ubyte]
-    --out <DIR>              recordings output dir   [default: recordings]
-    --trials <N>             number of trials        [default: 20]
-    --hidden <N>             hidden-layer neurons     [default: 200]
-    --ticks <N>              wavefronts per trial     [default: 100]
-    --window <N>             input jitter window      [default: 8]
-    --fan-in-hidden <K>      pixels -> each hidden    [default: 64]
-    --fan-in-output <K>      hidden -> each output    [default: 32]
-    --seed <N>               RNG seed                 [default: 12648430]
-    --train                  supervised: drive the correct output each tick (§8.5 Option 1)
-    --teach-strength <V>     teacher voltage/tick     [default: 24]
-    -h, --help               print this help
-
-MNIST files must be gunzip'd idx-ubyte (not .gz).
-
-With --train, each trial drives the labelled output neuron to burst so its afferent
-hidden->output weights undergo LTP. NOTE: the teacher inflates the output spike counts, so the
-per-trial prediction printed under --train is teacher-contaminated, not a measure of accuracy —
-re-run the same recordings without --train to read honest predictions.";
-
-fn parse_args() -> Result<Option<Args>, String> {
-    let mut a = Args::default();
-    let mut it = std::env::args().skip(1);
-    while let Some(flag) = it.next() {
-        let mut val = || it.next().ok_or_else(|| format!("{flag}: missing value"));
-        match flag.as_str() {
-            "-h" | "--help" => return Ok(None),
-            "--images" => a.images = PathBuf::from(val()?),
-            "--labels" => a.labels = PathBuf::from(val()?),
-            "--out" => a.out = PathBuf::from(val()?),
-            "--trials" => a.trials = val()?.parse().map_err(|e| format!("--trials: {e}"))?,
-            "--hidden" => a.hidden = val()?.parse().map_err(|e| format!("--hidden: {e}"))?,
-            "--ticks" => a.ticks = val()?.parse().map_err(|e| format!("--ticks: {e}"))?,
-            "--window" => a.window = val()?.parse().map_err(|e| format!("--window: {e}"))?,
-            "--fan-in-hidden" => a.fan_in_hidden = val()?.parse().map_err(|e| format!("--fan-in-hidden: {e}"))?,
-            "--fan-in-output" => a.fan_in_output = val()?.parse().map_err(|e| format!("--fan-in-output: {e}"))?,
-            "--seed" => a.seed = val()?.parse().map_err(|e| format!("--seed: {e}"))?,
-            "--train" => a.train = true,
-            "--teach-strength" => a.teach_strength = val()?.parse().map_err(|e| format!("--teach-strength: {e}"))?,
-            other => return Err(format!("unknown argument: {other} (try --help)")),
-        }
-    }
-    Ok(Some(a))
-}
-
-/// The hidden-layer neuron type — a `visual_mnist`-spirit pyramidal cell: several basal dendrites
-/// receiving the pixel projection, no apical compartment yet (Option-1 feedback is a later step).
-/// `Box::leak` yields the `&'static` the builder requires; called once, so the leak is intentional.
-fn hidden_config() -> &'static NeuronConfig {
-    Box::leak(Box::new(NeuronConfig::new(
-        "hidden",
-        6,                       // n_basal_dendrites — branches receiving the pixel projection
-        None,                    // n_apical_dendrites — none yet (no apical feedback first pass)
-        SamplerU8::new(128, 50), // synapse_x_sampler — spread positions along each dendrite
-        SamplerU8::new(1, 0),    // dendrites_per_branch — 1 → 6 basal dendrites/neuron
-        SamplerU8::new(16, 0),   // synapses_per_dendrite — ~16 live slots
-        20,                      // soma_threshold
-        500,                     // basal_dendrite_threshold
-        SamplerI8::new(40, 10),  // basal_dendrite_constant — proximal
-        None,                    // apical_dendrite_threshold
-        None,                    // apical_dendrite_constant
-        neural_sim::constants::MSLR as i16, // learning_rate
-    )))
+/// A built network ready to drive: the bound IO boundary, the per-trial stimulus stream, and the
+/// shape metadata stamped into every manifest. Experiment-agnostic — [`mnist::build`] is one
+/// producer; another task would supply its own `frames`/`labels` and wiring the same way.
+pub struct Experiment {
+    /// The wired, built network (learning state persists across trials by design).
+    pub network: Network,
+    /// Afferent boundary, bound to the input-population neuron range.
+    pub input: InputSpace,
+    /// Efferent boundary, bound to the output-population neuron range; argmaxes the prediction.
+    pub effector: Effector,
+    /// One stimulus frame per trial, in presentation order.
+    pub frames: Vec<Vec<u8>>,
+    /// Ground-truth class per trial, parallel to `frames`.
+    pub labels: Vec<u32>,
+    /// Network shape (`input_neurons`, `hidden_neurons`, …) recorded into each manifest for repro.
+    pub dims: BTreeMap<String, u64>,
 }
 
 /// The `constants.rs` values this run used, name → value, recorded in every manifest for repro.
@@ -167,58 +77,28 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let args = match parse_args()? {
+    let args = match args::parse_args()? {
         Some(a) => a,
         None => {
-            println!("{USAGE}");
+            println!("{}", args::USAGE);
             return Ok(());
         }
     };
 
-    let images = mnist::load_images(&args.images)?;
-    let labels = mnist::load_labels(&args.labels)?;
-    if images.images.is_empty() {
-        return Err("dataset contains no images".into());
-    }
-    if images.rows * images.cols != 784 {
-        return Err(format!(
-            "expected 28x28 frames, got {}x{} — is this MNIST?",
-            images.rows, images.cols
-        ));
-    }
-    let n_avail = images.images.len().min(labels.len());
-    let n_trials = args.trials.min(n_avail);
-    if n_trials == 0 {
-        return Err("no labeled images available to run".into());
-    }
+    let experiment = mnist::build(&args)?;
+    run_experiment(experiment, &args)
+}
 
-    // --- build input(784) -> hidden(N) -> output(10) ---
-    let input = InputSpace::identity("pixels", Shape::Grid2D { h: images.rows as u32, w: images.cols as u32 });
-    let effector = Effector::identity("digits", 10);
-
-    let mut builder = NetworkBuilder { populations: Vec::new(), connections: Vec::new() };
-    let in_pop = builder.add(input_config(), input.n_neurons());
-    let hid_pop = builder.add(hidden_config(), args.hidden);
-    let out_pop = builder.add(output_config(), effector.n_neurons());
-    builder.connect(in_pop, hid_pop, Compartment::Basal, ConnRule::FixedInDegree { k: args.fan_in_hidden });
-    builder.connect(hid_pop, out_pop, Compartment::Basal, ConnRule::FixedInDegree { k: args.fan_in_output });
-
-    let mut network = Network::build(builder);
-    let input = input.bind(network.population_range(in_pop));
-    let effector = effector.bind(network.population_range(out_pop));
+/// Drive `experiment` for one recording per trial: pre-trial keyframe → forward (or supervised)
+/// pass → post-trial keyframe, written to `args.out/trial-NNNNN.{ntr,ntr.json}`. The monotonic
+/// clock and learning state carry across trials; only the transient dynamics are reset between them.
+fn run_experiment(experiment: Experiment, args: &args::Args) -> Result<(), String> {
+    let Experiment { mut network, input, effector, frames, labels, dims } = experiment;
+    let n_trials = frames.len();
 
     std::fs::create_dir_all(&args.out).map_err(|e| format!("creating {}: {e}", args.out.display()))?;
 
-    let dims: BTreeMap<String, u64> = BTreeMap::from([
-        ("input_neurons".into(), input.n_neurons() as u64),
-        ("hidden_neurons".into(), args.hidden as u64),
-        ("output_neurons".into(), effector.n_neurons() as u64),
-        ("neurons".into(), network.n_neurons() as u64),
-        ("dendrites".into(), network.n_dendrites() as u64),
-        ("synapses".into(), network.n_synapses() as u64),
-    ]);
     let constants = constants_map();
-
     let mut rng = SmallRng::seed_from_u64(args.seed);
     let mut clock: u16 = 0;
     let mut spike_counts = vec![0u32; network.n_neurons()];
@@ -227,14 +107,14 @@ fn run() -> Result<(), String> {
 
     eprintln!(
         "network: {} input -> {} hidden -> {} output ({} neurons, {} dendrites, {} synapse slots){}",
-        input.n_neurons(), args.hidden, effector.n_neurons(),
-        network.n_neurons(), network.n_dendrites(), network.n_synapses(),
+        dims["input_neurons"], dims["hidden_neurons"], dims["output_neurons"],
+        dims["neurons"], dims["dendrites"], dims["synapses"],
         if args.train { format!(" — TRAINING (teach_strength={})", args.teach_strength) } else { String::new() },
     );
 
     for t in 0..n_trials {
-        let frame = &images.images[t];
-        let label = labels[t] as u32;
+        let frame = &frames[t];
+        let label = labels[t];
 
         let mut sink = RecordingSink::new(Manifest {
             label: format!("trial-{t:05}"),
