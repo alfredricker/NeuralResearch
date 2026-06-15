@@ -64,6 +64,55 @@ export const listRecordings = () => invoke<RecordingSummary[]>("list_recordings"
 export const loadRecording = (stem: string) =>
   invoke<RecordingDetail>("load_recording", { stem });
 
+// ---- Network graph replay (the stepper) ------------------------------------------------------
+
+export interface NeuronMeta {
+  index: number;
+  /** 0 = input, 1 = hidden, 2 = output. */
+  layer: number;
+}
+
+export interface EdgeMeta {
+  src: number;
+  dst: number;
+  synapse: number;
+  /** Synapse weight at the trial's pre/post keyframes (i8) — color by w_post or the delta. */
+  w_pre: number;
+  w_post: number;
+}
+
+export interface TickFrame {
+  /** Clock value relative to trial start. */
+  tick: number;
+  /** Per-neuron soma potential at this wavefront (i8). */
+  potentials: number[];
+  /** Per-neuron somatic spikes emitted *this* wavefront. */
+  spikes: number[];
+}
+
+export interface NetworkReplay {
+  label: string;
+  dims: Record<string, number>;
+  true_label: number | null;
+  prediction: number | null;
+  correct: boolean | null;
+  n_input: number;
+  n_hidden: number;
+  n_output: number;
+  neurons: NeuronMeta[];
+  edges: EdgeMeta[];
+  /** Live edge count before sampling (edges may be a stride-sample for large nets). */
+  edge_total: number;
+  edges_truncated: boolean;
+  /** Per-tick timeline; empty for large nets (only pre/post keyframes recorded). */
+  ticks: TickFrame[];
+  has_per_tick: boolean;
+}
+
+/** Load one recording's topology + per-tick state for the network graph view. */
+export const loadNetwork = (stem: string) =>
+  invoke<NetworkReplay>("load_network", { stem });
+
 // ---- Run notes (reuse the docs trust boundary) -----------------------------------------------
 
 /** Repo-relative path of a run's markdown note, under notes/runs/. */

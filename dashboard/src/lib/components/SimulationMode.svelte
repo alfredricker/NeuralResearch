@@ -12,6 +12,10 @@
   import { renderMarkdown } from "$lib/markdown";
   import BarChart from "./BarChart.svelte";
   import LineChart from "./LineChart.svelte";
+  import NetworkView from "./NetworkView.svelte";
+
+  type VizTab = "classification" | "network";
+  let vizTab = $state<VizTab>("classification");
 
   let recordings = $state<RecordingSummary[]>([]);
   let selectedStem = $state<string | null>(null);
@@ -120,6 +124,13 @@
     {:else if detail === null}
       <div class="placeholder">Select a recording to inspect its trial.</div>
     {:else}
+      <div class="viztabs">
+        <button class:active={vizTab === "classification"} onclick={() => (vizTab = "classification")}>Classification</button>
+        <button class:active={vizTab === "network"} onclick={() => (vizTab = "network")}>Network</button>
+      </div>
+      {#if vizTab === "network"}
+        <NetworkView stem={selectedStem} />
+      {:else}
       <div class="scroll">
         <!-- summary + prediction -->
         <section class="card">
@@ -194,6 +205,7 @@
           </div>
         </section>
       </div>
+      {/if}
     {/if}
   </main>
 
@@ -336,6 +348,30 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  .viztabs {
+    display: flex;
+    gap: 2px;
+    padding: 8px 14px 0;
+    border-bottom: 1px solid #2a2d35;
+    background: #1a1d23;
+  }
+  .viztabs button {
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 14px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: #9aa0ad;
+    cursor: pointer;
+  }
+  .viztabs button:hover {
+    color: #cfd6e4;
+  }
+  .viztabs button.active {
+    color: #cfe0ff;
+    border-bottom-color: #6f8fd6;
   }
   .scroll {
     overflow-y: auto;
