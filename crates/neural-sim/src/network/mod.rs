@@ -126,4 +126,25 @@ impl Network {
             spike_counts,
         }
     }
+
+    /// Enumerate the network's synaptic edges as `(src_neuron, dst_neuron, synapse_idx)` — one entry
+    /// per live axon target. Walks the axon CSR (source neuron → outgoing synapse slots) and resolves
+    /// each slot back to the dendrite that owns it and that dendrite's neuron. Topology is fixed at
+    /// build time, so the result is stable across trials: the dashboard records it once to draw the
+    /// network graph and to resolve a clicked neuron's afferents/efferents (with `synapse_idx` keying
+    /// into a snapshot's `synapse_weights`/`synapse_alphas`).
+    pub fn edges(&self) -> Vec<(u32, u32, u32)> {
+        use crate::neuron::dendrite::synapse_to_dendrite;
+        let mut edges = Vec::with_capacity(self.axons.axon_targets.len());
+        for src in 0..self.n_neurons() as u32 {
+            let lo = self.axons.axon_offsets[src as usize] as usize;
+            let hi = self.axons.axon_offsets[src as usize + 1] as usize;
+            for &syn in &self.axons.axon_targets[lo..hi] {
+                let dendrite = synapse_to_dendrite(syn as usize, &self.dendrites.synapse_offsets);
+                let dst = self.dendrites.dendrite_to_neuron[dendrite];
+                edges.push((src, dst, syn));
+            }
+        }
+        edges
+    }
 }

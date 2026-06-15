@@ -11,6 +11,7 @@
 //! wiring — lives in [`mnist`]; argument parsing lives in [`args`].
 
 mod args;
+mod blobs;
 mod mnist;
 
 use std::collections::BTreeMap;
@@ -47,6 +48,12 @@ pub struct Experiment {
     pub labels: Vec<u32>,
     /// Network shape (`input_neurons`, `hidden_neurons`, …) recorded into each manifest for repro.
     pub dims: BTreeMap<String, u64>,
+    /// Snapshot every tick (full membrane-potential scrubbing) — set for small nets the dashboard
+    /// can render whole; left off for large topologies where per-tick keyframes would be huge.
+    pub snapshot_every_tick: bool,
+    /// Recording stem/label prefix (e.g. `"mnist"`, `"blobs"`) so different tasks' recordings don't
+    /// collide in the output dir; each trial is written as `<prefix>-NNNNN.{ntr,ntr.json}`.
+    pub label_prefix: &'static str,
 }
 
 /// The `constants.rs` values this run used, name → value, recorded in every manifest for repro.
@@ -85,7 +92,10 @@ fn run() -> Result<(), String> {
         }
     };
 
-    let experiment = mnist::build(&args)?;
+    let experiment = match args.task {
+        args::Task::Mnist => mnist::build(&args)?,
+        args::Task::Blobs => blobs::build(&args)?,
+    };
     run_experiment(experiment, &args)
 }
 
@@ -93,16 +103,23 @@ fn run() -> Result<(), String> {
 /// pass → post-trial keyframe, written to `args.out/trial-NNNNN.{ntr,ntr.json}`. The monotonic
 /// clock and learning state carry across trials; only the transient dynamics are reset between them.
 fn run_experiment(experiment: Experiment, args: &args::Args) -> Result<(), String> {
-    let Experiment { mut network, input, effector, frames, labels, dims } = experiment;
+    let Experiment { mut network, input, effector, frames, labels, dims, snapshot_every_tick, label_prefix } = experiment;
     let n_trials = frames.len();
 
     std::fs::create_dir_all(&args.out).map_err(|e| format!("creating {}: {e}", args.out.display()))?;
 
+    // topology is fixed across trials — compute the edge list once, write it into every recording.
+    let edges = network.edges();
     let constants = constants_map();
     let mut rng = SmallRng::seed_from_u64(args.seed);
     let mut clock: u16 = 0;
     let mut spike_counts = vec![0u32; network.n_neurons()];
-    let cfg = TrialConfig { ticks: args.ticks, window: args.window, teach_strength: args.teach_strength };
+    let cfg = TrialConfig {
+        ticks: args.ticks,
+        window: args.window,
+        teach_strength: args.teach_strength,
+        snapshot_every_tick,
+    };
     let mut correct = 0usize;
 
     eprintln!(
@@ -116,14 +133,16 @@ fn run_experiment(experiment: Experiment, args: &args::Args) -> Result<(), Strin
         let frame = &frames[t];
         let label = labels[t];
 
+        let id = format!("{label_prefix}-{t:05}");
         let mut sink = RecordingSink::new(Manifest {
-            label: format!("trial-{t:05}"),
+            label: id.clone(),
             dims: dims.clone(),
             constants: constants.clone(),
             keyframe_offsets: Vec::new(),
             true_label: Some(label),
             prediction: None,
         });
+        sink.set_edges(edges.clone());
 
         // fresh ring per trial → clean isolation (head/tail from 0, no cross-trial event bleed).
         let queue = EventQueue::new(QUEUE_CAPACITY);
@@ -147,7 +166,7 @@ fn run_experiment(experiment: Experiment, args: &args::Args) -> Result<(), Strin
             correct += 1;
         }
 
-        let stem = args.out.join(format!("trial-{t:05}"));
+        let stem = args.out.join(&id);
         sink.write(&stem).map_err(|e| format!("writing {}: {e}", stem.display()))?;
 
         // isolate the next trial; learning state (weights/alpha/beta) persists by design.

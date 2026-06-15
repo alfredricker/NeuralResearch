@@ -88,11 +88,17 @@ pub struct Manifest {
     pub prediction: Option<u32>,
 }
 
-/// The serialized body: keyframes + the event trace between them.
+/// The serialized body: keyframes + the event trace between them, plus the fixed topology.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Recording {
     pub events: Vec<EventRecord>,
     pub snapshots: Vec<Snapshot>,
+    /// Synaptic connectivity as `(src_neuron, dst_neuron, synapse_idx)` edges (see
+    /// [`neural_sim::network::Network::edges`]). Fixed for the run, written once; the dashboard
+    /// draws the graph from it and indexes `synapse_idx` into a snapshot's `synapse_weights`.
+    /// Empty in older recordings (and runs that don't record topology).
+    #[serde(default)]
+    pub edges: Vec<(u32, u32, u32)>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -137,6 +143,13 @@ impl RecordingSink {
     /// Mutable access to the manifest, e.g. to record the prediction once a trial has been scored.
     pub fn manifest_mut(&mut self) -> &mut Manifest {
         &mut self.manifest
+    }
+
+    /// Record the fixed network topology (from [`neural_sim::network::Network::edges`]) into the
+    /// body. Topology is identical across trials, so the caller computes it once and sets it on
+    /// each trial's sink before writing.
+    pub fn set_edges(&mut self, edges: Vec<(u32, u32, u32)>) {
+        self.recording.edges = edges;
     }
 }
 

@@ -160,5 +160,7 @@ pub fn build(args: &Args) -> Result<Experiment, String> {
     let frames: Vec<Vec<u8>> = images.images.into_iter().take(n_trials).collect();
     let labels: Vec<u32> = labels.into_iter().take(n_trials).map(u32::from).collect();
 
-    Ok(Experiment { network, input, effector, frames, labels, dims })
+    // MNIST is far too large to keep a full snapshot per tick — replay animates from the event
+    // trace and the pre/post keyframes instead.
+    Ok(Experiment { network, input, effector, frames, labels, dims, snapshot_every_tick: false, label_prefix: "mnist" })
 }

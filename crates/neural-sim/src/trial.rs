@@ -31,11 +31,16 @@ pub struct TrialConfig {
     /// only on *training* trials (when `run_trial` is given a label). Set at or above the output
     /// `soma_threshold` so the taught neuron reliably bursts; ignored for un-taught trials.
     pub teach_strength: i16,
+    /// When set, push a full state snapshot to the sink after **every** wavefront (not just the
+    /// caller's pre/post keyframes) so the dashboard can scrub subthreshold dynamics tick by tick.
+    /// One snapshot ≈ all SoA arrays, so enable this only for small networks; large topologies
+    /// (MNIST) should leave it off and animate from the event trace instead.
+    pub snapshot_every_tick: bool,
 }
 
 impl Default for TrialConfig {
     fn default() -> Self {
-        Self { ticks: 100, window: 8, teach_strength: 24 }
+        Self { ticks: 100, window: 8, teach_strength: 24, snapshot_every_tick: false }
     }
 }
 
@@ -82,6 +87,11 @@ pub fn run_trial(
             }
         }
         network.step(queue, sink, spike_counts);
+        // per-tick keyframe (small nets only): snapshot the post-wavefront state at this tick's
+        // clock so replay can step the membrane-potential evolution, not just the spike events.
+        if cfg.snapshot_every_tick {
+            sink.on_snapshot(&network.view(*clock, spike_counts));
+        }
         *clock = clock.wrapping_add(1);
     }
 
@@ -122,7 +132,7 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(1);
         let mut clock = 0u16;
         let mut counts = vec![0u32; net.n_neurons()];
-        let cfg = TrialConfig { ticks: 20, window: 4, teach_strength: 24 };
+        let cfg = TrialConfig { ticks: 20, window: 4, teach_strength: 24, snapshot_every_tick: false };
         let base = in_range.start as usize;
 
         for _ in 0..5 {
@@ -158,7 +168,7 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(3);
         let mut clock = 0u16;
         let mut counts = vec![0u32; net.n_neurons()];
-        let cfg = TrialConfig { ticks: 40, window: 4, teach_strength: 30 };
+        let cfg = TrialConfig { ticks: 40, window: 4, teach_strength: 30, snapshot_every_tick: false };
         let out_base = net.population_range(out).start as usize;
 
         // teach class 0 on a fully-lit frame for several trials.
