@@ -3,7 +3,6 @@ resolver = "3"
 members = [
     "crates/neural-sim",
     "crates/neural-telemetry",
-    "crates/neural-cli",
 ]
 
 # Shared dependency versions. Members opt in with `dep.workspace = true`.
@@ -11,7 +10,6 @@ members = [
 rand = "0.10.1"
 thiserror = "2.0.18"
 serde = { version = "1.0", features = ["derive"] }
-postcard = { version = "1.0", features = ["use-std"] }
 serde_json = "1.0"
 neural-sim = { path = "crates/neural-sim" }
 neural-telemetry = { path = "crates/neural-telemetry" }

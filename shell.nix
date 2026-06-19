@@ -34,6 +34,9 @@ pkgs.mkShell {
     gobject-introspection
     cargo-tauri
     nodejs_22
+    # LaTeX → PDF rendering for the docs pillar (the `render_tex` command). Self-contained binary
+    # that fetches packages on demand — no full TeX Live needed. On macOS: `brew install tectonic`.
+    tectonic
   ];
   buildInputs = libs;
 

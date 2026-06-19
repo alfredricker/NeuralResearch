@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listDocs, readDoc, readDocBytes, saveDoc, docKind, type DocEntry, type DocKind } from "$lib/api";
+  import { listDocs, readDoc, readDocBytes, saveDoc, renderTex, docKind, type DocEntry, type DocKind } from "$lib/api";
   import { renderMarkdown, renderLatex } from "$lib/markdown";
 
   // Three panels — file selection, editor, reader — each independently collapsible. Collapsing the
@@ -16,6 +16,8 @@
   let error = $state("");
   // Object URL backing the PDF viewer; revoked whenever we switch away from a PDF.
   let pdfUrl = $state<string | null>(null);
+  // True while a .tex compile is in flight (disables the Render button).
+  let rendering = $state(false);
 
   const kind = $derived<DocKind | null>(selected === null ? null : docKind(selected));
   const editable = $derived(kind === "md" || kind === "tex");
@@ -95,6 +97,30 @@
     }
   }
 
+  // Compile the current .tex to a PDF next to it, then open that PDF. Saves first so the render
+  // reflects what's in the editor.
+  async function render() {
+    if (selected === null || kind !== "tex" || rendering) return;
+    try {
+      error = "";
+      if (dirty) {
+        await saveDoc(selected, content);
+        savedContent = content;
+      }
+      rendering = true;
+      status = "rendering…";
+      const pdfPath = await renderTex(selected);
+      await refresh(); // surface the freshly written .pdf in the file tree
+      await load(pdfPath); // switch the viewer to the compiled PDF
+      status = `rendered ${pdfPath}`;
+    } catch (e) {
+      error = `render failed: ${e}`;
+      status = "";
+    } finally {
+      rendering = false;
+    }
+  }
+
   function onKeydown(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === "s") {
       e.preventDefault();
@@ -152,6 +178,11 @@
           <span class="error">{error}</span>
         {:else if status}
           <span class="status">{status}</span>
+        {/if}
+        {#if kind === "tex"}
+          <button class="save" disabled={rendering} onclick={render} title="Compile to PDF alongside this file">
+            {rendering ? "Rendering…" : "Render PDF"}
+          </button>
         {/if}
         <button class="save" disabled={!dirty} onclick={save}>Save ⌘S</button>
         <button class="collapse" onclick={() => (collapsed.editor = true)} title="Collapse">‹</button>

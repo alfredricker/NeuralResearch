@@ -4,28 +4,21 @@
 //!   - **Docs** (`docs/`, `notes/`, `science/`): an editable markdown/LaTeX file tree. File IO is
 //!     done here (not via the fs plugin) so the frontend can only touch allowed types under those
 //!     roots: `.md`/`.tex` are read/written as text, `.pdf` is read as raw bytes for view-only display.
-//!   - **Simulation replay**: `list_recordings`/`load_recording` read the `.ntr` pairs `neural-cli`
-//!     writes and aggregate them in-process into a compact digest for the viewer. Decoding the
-//!     half-million-event body and reducing it to per-tick / per-layer summaries happens here so the
-//!     webview never has to hold the raw trace.
+//!   - **Playground** (planned): builds a live `neural-sim` network in-process from a
+//!     `neural_telemetry::spec::NetworkSpec`, steps it one wavefront at a time, and projects
+//!     per-neuron state to the webview. The `.ntr` replay pillar it replaces has been removed.
 //!
-//! The backend links `neural-sim`/`neural-telemetry` directly (see `sim_constants`, `load_recording`)
-//! — the in-process seam the architecture plan is built around.
+//! The backend links `neural-sim`/`neural-telemetry` directly (see `sim_constants`) — the
+//! in-process seam the architecture plan is built around.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub mod docs;
-pub mod network;
-pub mod recording;
 
-/// The document roots surfaced and edited in-app, relative to the repo root. `notes/runs/` (per-run
-/// notes written from simulation mode) and anything nested under these also surface, since the doc
-/// listing recurses.
+/// The document roots surfaced and edited in-app, relative to the repo root. Anything nested under
+/// these also surfaces, since the doc listing recurses.
 const DOC_DIRS: [&str; 3] = ["docs", "notes", "science"];
-
-/// Where `neural-cli` writes the `.ntr`/`.ntr.json` pairs the viewer replays, relative to repo root.
-const RECORDINGS_DIR: &str = "recordings";
 
 /// Repo root — two levels up from this crate (`dashboard/src-tauri` → repo root). Resolved from the
 /// compile-time manifest dir, which is correct under `tauri dev` / `cargo run`; falls back to the
@@ -63,9 +56,7 @@ pub fn run() {
             docs::read_doc,
             docs::read_doc_bytes,
             docs::save_doc,
-            recording::list_recordings,
-            recording::load_recording,
-            network::load_network,
+            docs::render_tex,
             sim_constants
         ])
         .run(tauri::generate_context!())

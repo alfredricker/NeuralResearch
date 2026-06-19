@@ -2,8 +2,8 @@
 //!
 //! `run_event_loop` takes a `&mut impl TelemetrySink`. The production / GPU path passes
 //! [`NullSink`], whose methods are all no-ops and monomorphize away to nothing — the hot
-//! path pays zero cost. The dashboard path passes a `RecordingSink` (in `neural-telemetry`,
-//! where serde is allowed) that writes the `.ntr` recording.
+//! path pays zero cost. An observing path (e.g. the dashboard playground's per-wavefront
+//! capture sink) passes a sink that copies the borrowed state out into whatever it needs.
 //!
 //! Two observation channels:
 //!   - [`TelemetrySink::on_event`] — fine-grained event trace (every drained [`Event`]),

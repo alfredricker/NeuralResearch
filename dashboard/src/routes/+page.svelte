@@ -2,10 +2,9 @@
   import { onMount } from "svelte";
   import { simConstants } from "$lib/api";
   import ReadingMode from "$lib/components/ReadingMode.svelte";
-  import SimulationMode from "$lib/components/SimulationMode.svelte";
 
   type Mode = "reading" | "simulation";
-  let mode = $state<Mode>("simulation");
+  let mode = $state<Mode>("reading");
   let constants = $state<Record<string, number>>({});
 
   onMount(async () => {
@@ -38,7 +37,10 @@
     {#if mode === "reading"}
       <ReadingMode />
     {:else}
-      <SimulationMode />
+      <div class="placeholder">
+        <p>Playground coming soon.</p>
+        <p class="dim">The live circuit builder &amp; single-neuron view will live here.</p>
+      </div>
     {/if}
   </div>
 </div>
@@ -108,5 +110,19 @@
   .body {
     flex: 1;
     min-height: 0;
+  }
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 6px;
+    color: #9aa0ad;
+    font-size: 14px;
+  }
+  .placeholder .dim {
+    color: #6b7080;
+    font-size: 12px;
   }
 </style>

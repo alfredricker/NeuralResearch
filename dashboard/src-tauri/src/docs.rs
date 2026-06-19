@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------------------------
 
 use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 
 use serde::Serialize;
 use tauri::ipc::Response;
@@ -105,4 +106,100 @@ pub(crate) fn save_doc(path: String, content: String) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("creating {}: {e}", parent.display()))?;
     }
     std::fs::write(&abs, content).map_err(|e| format!("writing {}: {e}", abs.display()))
+}
+
+// ---------------------------------------------------------------------------------------------
+// LaTeX → PDF rendering
+// ---------------------------------------------------------------------------------------------
+
+/// Known engines in preference order. Tectonic first: it's a single self-contained binary that
+/// fetches packages on demand (so it works on a fresh machine) and leaves no `.aux`/`.log` clutter.
+/// The rest are TeX Live tools we'll drive if that's what's installed.
+const TEX_ENGINES: [&str; 5] = ["tectonic", "latexmk", "pdflatex", "xelatex", "lualatex"];
+
+/// Dirs probed beyond `$PATH` — a `tauri dev` / GUI launch often inherits a thin PATH that misses
+/// the usual TeX install locations on macOS (MacTeX, Homebrew) and Linux.
+const TEX_SEARCH_DIRS: [&str; 4] =
+    ["/Library/TeX/texbin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+
+/// Aux files non-tectonic engines drop next to the source — removed after a successful compile so the
+/// doc tree stays just `.tex` + `.pdf`.
+const TEX_AUX_EXTS: [&str; 7] = ["aux", "log", "out", "toc", "fls", "fdb_latexmk", "synctex.gz"];
+
+/// Locate the first available LaTeX engine, returning its name and absolute path.
+fn find_engine() -> Option<(&'static str, PathBuf)> {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    dirs.extend(TEX_SEARCH_DIRS.iter().map(PathBuf::from));
+    for engine in TEX_ENGINES {
+        for dir in &dirs {
+            let cand = dir.join(engine);
+            if cand.is_file() {
+                return Some((engine, cand));
+            }
+        }
+    }
+    None
+}
+
+/// Compile a `.tex` doc to a PDF written alongside it (same stem, `.pdf` extension), and return the
+/// repo-relative path of the produced PDF (which `read_doc_bytes` then serves to the viewer).
+///
+/// The engine runs with its working dir set to the source folder so relative `\input`/graphics
+/// resolve, and emits the PDF into that same folder. Raw `pdflatex`/`xelatex`/`lualatex` are run
+/// twice so cross-references / the TOC settle; `tectonic` and `latexmk` handle multi-pass themselves.
+#[tauri::command]
+pub(crate) fn render_tex(path: String) -> Result<String, String> {
+    let abs = resolve_doc(&path, &["tex"])?;
+    let dir = abs.parent().ok_or("tex file has no parent directory")?;
+    let stem = abs.file_stem().and_then(|s| s.to_str()).ok_or("bad tex filename")?.to_string();
+    let file_name = abs.file_name().and_then(|s| s.to_str()).ok_or("bad tex filename")?.to_string();
+
+    let (engine, bin) = find_engine().ok_or_else(|| {
+        "no LaTeX engine found — install one (e.g. `brew install tectonic`) and retry".to_string()
+    })?;
+
+    // Engines that don't self-iterate need a second pass to settle refs/TOC.
+    let passes = if matches!(engine, "pdflatex" | "xelatex" | "lualatex") { 2 } else { 1 };
+    let mut last_output = None;
+    for _ in 0..passes {
+        let mut cmd = Command::new(&bin);
+        cmd.current_dir(dir);
+        match engine {
+            "tectonic" => {
+                cmd.args(["--outdir", "."]).arg(&file_name);
+            }
+            "latexmk" => {
+                cmd.args(["-pdf", "-interaction=nonstopmode", "-halt-on-error", "-outdir=."])
+                    .arg(&file_name);
+            }
+            _ => {
+                cmd.args(["-interaction=nonstopmode", "-halt-on-error", "-output-directory=."])
+                    .arg(&file_name);
+            }
+        }
+        last_output = Some(cmd.output().map_err(|e| format!("running {engine}: {e}"))?);
+    }
+
+    // Clean aux droppings (tectonic leaves none, but the TeX Live engines do).
+    if engine != "tectonic" {
+        for ext in TEX_AUX_EXTS {
+            let _ = std::fs::remove_file(dir.join(format!("{stem}.{ext}")));
+        }
+    }
+
+    let pdf = dir.join(format!("{stem}.pdf"));
+    if !pdf.is_file() {
+        let log = last_output
+            .map(|o| {
+                format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
+            })
+            .unwrap_or_default();
+        let lines: Vec<&str> = log.lines().collect();
+        let tail = lines[lines.len().saturating_sub(30)..].join("\n");
+        return Err(format!("{engine} did not produce a PDF:\n{tail}"));
+    }
+
+    Ok(format!("{}.pdf", path.strip_suffix(".tex").unwrap_or(&path)))
 }
