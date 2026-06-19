@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listDocs, readDoc, saveDoc, type DocEntry } from "$lib/api";
-  import { renderMarkdown } from "$lib/markdown";
+  import { listDocs, readDoc, readDocBytes, saveDoc, docKind, type DocEntry, type DocKind } from "$lib/api";
+  import { renderMarkdown, renderLatex } from "$lib/markdown";
 
   // Three panels — file selection, editor, reader — each independently collapsible. Collapsing the
   // reader gives the editor the full width (focused writing); collapsing the editor does the inverse
@@ -14,11 +14,22 @@
   let savedContent = $state("");
   let status = $state("");
   let error = $state("");
+  // Object URL backing the PDF viewer; revoked whenever we switch away from a PDF.
+  let pdfUrl = $state<string | null>(null);
 
-  const dirty = $derived(selected !== null && content !== savedContent);
-  const previewHtml = $derived.by(() => renderMarkdown(content));
+  const kind = $derived<DocKind | null>(selected === null ? null : docKind(selected));
+  const editable = $derived(kind === "md" || kind === "tex");
+  const dirty = $derived(editable && selected !== null && content !== savedContent);
+  const previewHtml = $derived.by(() =>
+    kind === "tex" ? renderLatex(content) : renderMarkdown(content),
+  );
   const roots = ["docs", "notes", "science"] as const;
   const docsIn = (dir: string) => docs.filter((d) => d.dir === dir);
+
+  function clearPdf() {
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    pdfUrl = null;
+  }
 
   async function refresh() {
     try {
@@ -28,18 +39,47 @@
     }
   }
 
+  // Load a document's content from disk into the editor/reader. PDFs are fetched as bytes and shown
+  // via an object URL (view-only); md/tex are read as editable text.
+  async function load(path: string) {
+    error = "";
+    status = "";
+    if (docKind(path) === "pdf") {
+      const bytes = await readDocBytes(path);
+      clearPdf();
+      pdfUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      content = "";
+      savedContent = "";
+    } else {
+      const text = await readDoc(path);
+      clearPdf();
+      content = text;
+      savedContent = text;
+    }
+    selected = path;
+  }
+
   async function open(path: string) {
     if (dirty && !confirm("Discard unsaved changes?")) return;
     try {
-      error = "";
-      const text = await readDoc(path);
-      content = text;
-      savedContent = text;
-      selected = path;
-      status = "";
+      await load(path);
       if (collapsed.editor && collapsed.reader) collapsed.editor = false;
     } catch (e) {
       error = `could not open ${path}: ${e}`;
+    }
+  }
+
+  // Reload the current document from disk — picks up external edits (e.g. a recompiled PDF or a run
+  // note the sim just wrote). Guards unsaved editor changes.
+  async function reload() {
+    if (selected === null) return;
+    if (dirty && !confirm("Discard unsaved changes and reload from disk?")) return;
+    try {
+      const path = selected;
+      await load(path);
+      status = `reloaded ${path}`;
+    } catch (e) {
+      error = `could not reload: ${e}`;
     }
   }
 
@@ -118,6 +158,8 @@
       </header>
       {#if selected === null}
         <div class="placeholder">Select a document to edit.</div>
+      {:else if kind === "pdf"}
+        <div class="placeholder">PDFs are view-only — see the reader.</div>
       {:else}
         <textarea class="editor" bind:value={content} spellcheck="false" placeholder="# Markdown + $\LaTeX$ …"></textarea>
       {/if}
@@ -134,10 +176,15 @@
       <header class="phead">
         <span class="ptitle">reader</span>
         <span class="spacer"></span>
+        <button class="refresh" disabled={selected === null} onclick={reload} title="Reload from disk">⟳ Refresh</button>
         <button class="collapse" onclick={() => (collapsed.reader = true)} title="Collapse">›</button>
       </header>
       {#if selected === null}
         <div class="placeholder">Preview appears here.</div>
+      {:else if kind === "pdf"}
+        {#if pdfUrl}
+          <iframe class="pdf" src={pdfUrl} title={selected}></iframe>
+        {/if}
       {:else}
         <article class="preview">{@html previewHtml}</article>
       {/if}
@@ -209,6 +256,23 @@
     cursor: pointer;
   }
   .save:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .refresh {
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #2a2d35;
+    background: #20232b;
+    color: #c2c6cf;
+    cursor: pointer;
+  }
+  .refresh:hover:not(:disabled) {
+    background: #272b34;
+  }
+  .refresh:disabled {
     opacity: 0.4;
     cursor: default;
   }
@@ -321,6 +385,13 @@
     overflow-y: auto;
     line-height: 1.6;
     min-height: 0;
+  }
+  .pdf {
+    flex: 1;
+    border: none;
+    width: 100%;
+    min-height: 0;
+    background: #fff;
   }
   .preview :global(h1),
   .preview :global(h2),

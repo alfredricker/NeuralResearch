@@ -2,7 +2,8 @@
 //!
 //! Two pillars, both served by narrow Rust commands so the trust boundary is explicit:
 //!   - **Docs** (`docs/`, `notes/`, `science/`): an editable markdown/LaTeX file tree. File IO is
-//!     done here (not via the fs plugin) so the frontend can only read/write `.md` under those roots.
+//!     done here (not via the fs plugin) so the frontend can only touch allowed types under those
+//!     roots: `.md`/`.tex` are read/written as text, `.pdf` is read as raw bytes for view-only display.
 //!   - **Simulation replay**: `list_recordings`/`load_recording` read the `.ntr` pairs `neural-cli`
 //!     writes and aggregate them in-process into a compact digest for the viewer. Decoding the
 //!     half-million-event body and reducing it to per-tick / per-layer summaries happens here so the
@@ -60,6 +61,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             docs::list_docs,
             docs::read_doc,
+            docs::read_doc_bytes,
             docs::save_doc,
             recording::list_recordings,
             recording::load_recording,

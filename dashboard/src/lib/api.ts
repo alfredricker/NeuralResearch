@@ -12,13 +12,26 @@ export interface DocEntry {
   dir: string;
 }
 
-/** Every `.md` file under the doc roots (recursively), sorted within each root. */
+/** How a doc is handled: markdown/tex are editable text, pdf is view-only binary. */
+export type DocKind = "md" | "tex" | "pdf";
+
+/** Classify a doc path by extension (defaults to markdown for anything unrecognized). */
+export function docKind(path: string): DocKind {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  return ext === "tex" || ext === "pdf" ? ext : "md";
+}
+
+/** Every viewable file (`.md`/`.tex`/`.pdf`) under the doc roots, sorted within each root. */
 export const listDocs = () => invoke<DocEntry[]>("list_docs");
 
-/** Read a doc's markdown source. */
+/** Read an editable doc's text source (`.md`/`.tex`). */
 export const readDoc = (path: string) => invoke<string>("read_doc", { path });
 
-/** Write a doc's markdown source back to disk (creates parent dirs as needed). */
+/** Read a doc's raw bytes (used for `.pdf`); returns an ArrayBuffer. */
+export const readDocBytes = (path: string) =>
+  invoke<ArrayBuffer>("read_doc_bytes", { path });
+
+/** Write an editable doc's text back to disk (`.md`/`.tex`; creates parent dirs as needed). */
 export const saveDoc = (path: string, content: string) =>
   invoke<void>("save_doc", { path, content });
 

@@ -1,0 +1,134 @@
+\documentclass[11pt, a4paper]{article}
+
+% --- SIMPLIFIED PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{amsfonts}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{tikz}
+ 
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\layernorm}{\mathrm{LayerNorm}}
+\newcommand{\softmax}{\mathrm{Softmax}}
+\newcommand{\GRU}{\mathrm{GRU}}
+\newcommand{\MLP}{\mathrm{MLP}}
+\newcommand{\WM}{\mathrm{WeightedMean}}
+
+\title{Equations}
+\author{ Ricker }
+\date{June 2026}
+
+\newcommand{\D}{\mathrm{d}}
+
+\setlength{\parindent}{0pt}
+
+\begin{document}
+\section{Neurons}
+
+All state is fixed-point and updated \emph{lazily}: a compartment only advances when an event
+touches it, decaying from its last-event timestamp $\tau$ to the current time $t$. Time is the
+$\mathfrak{u}16$ event clock (ticks).
+
+\subsection{Base-2 decay operator}
+Every leak is the same $O(1)$ base-2 approximation of an exponential (\texttt{math::decay}):
+\begin{equation}
+    \mathcal{D}_k(v, \Delta t) = v \cdot 2^{-\Delta t / 2^{k}},
+\end{equation}
+i.e.\ $v$ halves every $2^{k}$ ticks (half-life $2^{k}$). The exponent $k$ selects the time constant
+of each compartment; the same operator decays alpha, branch voltage, and the soma potential.
+
+\subsection{Synapse}
+Let $x \in \mathfrak{u}8$ (position along the dendrite), $w \in \mathfrak{i}8$ (weight),
+$\alpha \in \mathfrak{u}8$ (activity / eligibility trace), $\tau \in \mathfrak{u}16$ (last-event time).
+\begin{equation}
+    s = (x,\,w,\,\alpha,\,\tau)
+\end{equation}
+Synapses on a dendrite are ordered by strictly increasing, unique $x$. The trace $\alpha$ decays with
+$k_\alpha = 11$ and is boosted by $\alpha_b = 64$ each time a forward action potential arrives:
+\begin{equation}
+    \alpha \leftarrow \mathcal{D}_{k_\alpha}\!\big(\alpha,\, t - \tau\big), \qquad
+    \alpha \leftarrow \min(\alpha + \alpha_b,\; 255).
+\end{equation}
+
+\subsection{Basal dendrite}
+Synapses more distal than $i$ (larger $x$) gate $i$'s contribution: their (decayed) traces sum, with
+weight that falls off over $x$ with $k_x = 4$. This makes integration order-dependent.
+\begin{equation}
+    \gamma_i = \sum_{j:\, x_j > x_i} \mathcal{D}_{k_x}\!\big(\alpha_j,\, x_j - x_i\big)
+             = \sum_{j:\, x_j > x_i} \alpha_j \, 2^{-(x_j - x_i)/2^{k_x}}.
+\end{equation}
+A synaptic event at synapse $i$ carrying presynaptic burst $b$ (the number of APs) leaks the branch
+voltage $V_B$ since its last event, then adds the gated EPSP ($k_B = 9$):
+\begin{equation}
+    V_B \leftarrow \mathcal{D}_{k_B}\!\big(V_B,\, \Delta t\big) \;+\; b\, w_i \,(1 + \gamma_i).
+\end{equation}
+The basal branch is a hard threshold: on crossing $\theta_B$ it emits a dendritic spike and resets.
+\begin{equation}
+    V_B \ge \theta_B \;\Longrightarrow\; \text{dendritic spike}, \quad V_B \leftarrow 0.
+\end{equation}
+
+\subsection{Apical dendrite}
+The apical branch integrates $V_B$ identically (with $k = 11$) but \emph{does not} reset --- it leaks.
+Instead of a discrete spike it delivers a graded plateau to the soma, a sigmoidal transfer
+(Payeur et al., 2021) with half-activation $\theta_B$, ceiling $\delta V_S$ and slope
+$\kappa = \ln 2 / 2^{k}$:
+\begin{equation}
+    \sigma^{\mathrm{ap}}(V_B) = \frac{\delta V_S}{1 + e^{-\kappa\,(V_B - \theta_B)}}, \qquad
+    \sigma^{\mathrm{ap}} \in [0,\, \delta V_S].
+\end{equation}
+
+\subsection{Dendrite $\to$ soma coupling}
+A basal dendritic spike with branch constant $c$ delivers $v_S = \max(c, 1)$ to the soma. Distal
+branches ($c \le 0$) attenuate to unity at the soma but reinforce their own active synapses locally:
+\begin{equation}
+    v_S = \max(c,\,1), \qquad
+    \alpha_j \leftarrow \alpha_j + |c| \quad (\text{for } \alpha_j > H_\alpha).
+\end{equation}
+An apical event delivers $v_S = \sigma^{\mathrm{ap}}(V_B)$.
+
+\subsection{Soma}
+The soma holds potential $V_S \in \mathfrak{i}8$ and a 6-bit burst counter $\beta \in [0, 63]$. An
+incoming $v_S$ leaks the potential ($k_S = 10$) and the counter ($T_\beta = 500$ ticks per unit) over
+$\Delta t$, then integrates:
+\begin{equation}
+    V_S \leftarrow \mathcal{D}_{k_S}\!\big(V_S,\, \Delta t\big) + v_S, \qquad
+    \beta \leftarrow \beta - \left\lfloor \tfrac{\Delta t}{T_\beta} \right\rfloor.
+\end{equation}
+If the threshold $\theta_S > 0$ is crossed the soma emits a somatic spike whose burst $n$ counts how
+many multiples of threshold accrued; it then resets to $V_{\mathrm{reset}} = -32$ and the burst
+reinforces $\beta$:
+\begin{equation}
+    V_S \ge \theta_S \;\Longrightarrow\;
+    n = \left\lfloor \tfrac{V_S}{\theta_S} \right\rfloor, \quad
+    V_S \leftarrow V_{\mathrm{reset}}, \quad
+    \beta \leftarrow \min(\beta + n,\; 63).
+\end{equation}
+
+\subsection{Plasticity (back-propagating AP)}
+A somatic spike drives burst-dependent plasticity across the neuron's own afferent synapses. Only
+sufficiently active synapses ($\alpha_i > H_\alpha$, with $H_\alpha = 30$) update; the burst counter
+sets the sign about the baseline $H_\beta = 4$ ($\beta > H_\beta$: LTP; $\beta < H_\beta$: LTD), and
+$\eta$ is the per-neuron learning rate ($\eta \ge 120$):
+\begin{equation}
+    \Delta w_i = \frac{(\beta - H_\beta)\,\alpha_i}{\eta}, \qquad
+    w_i \leftarrow \mathrm{clamp}\big(w_i + \Delta w_i,\; -127,\; 127\big).
+\end{equation}
+
+\subsection{Event flow}
+One spike threads a fixed sequence of events, the burst count $b$ riding the payload throughout:
+\begin{equation}
+    \texttt{SYNAPSE\_SIGNAL} \to
+    \begin{cases}
+        \texttt{DENDRITIC\_SPIKE} \to \texttt{SOMA\_SIGNAL} & \text{(basal)}\\
+        \texttt{SOMA\_SIGNAL} & \text{(apical)}
+    \end{cases}
+    \to \texttt{SOMATIC\_SPIKE} \to \texttt{SYNAPSE\_SIGNAL}.
+\end{equation}
+A somatic spike fans out to every axonal target as an independent \texttt{SYNAPSE\_SIGNAL}.
+
+\end{document}
