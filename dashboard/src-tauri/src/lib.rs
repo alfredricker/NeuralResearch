@@ -15,6 +15,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub mod docs;
+pub mod playground;
+
+use playground::PlaygroundState;
 
 /// The document roots surfaced and edited in-app, relative to the repo root. Anything nested under
 /// these also surfaces, since the doc listing recurses.
@@ -51,12 +54,18 @@ fn sim_constants() -> BTreeMap<String, i64> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(PlaygroundState::default())
         .invoke_handler(tauri::generate_handler![
             docs::list_docs,
             docs::read_doc,
             docs::read_doc_bytes,
             docs::save_doc,
             docs::render_tex,
+            playground::pg_build,
+            playground::pg_stimulate,
+            playground::pg_step,
+            playground::pg_state,
+            playground::pg_reset,
             sim_constants
         ])
         .run(tauri::generate_context!())

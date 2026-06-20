@@ -56,6 +56,136 @@ export async function readRunNote(label: string): Promise<string> {
 export const saveRunNote = (label: string, content: string) =>
   saveDoc(runNotePath(label), content);
 
+// ---- Playground (live stepper) ---------------------------------------------------------------
+//
+// Build a live network from a spec, stimulate synapses, and step it one wavefront at a time.
+// Anatomy is the fixed structure (fetched once at build); a frame is the dynamic state after a
+// step, with frame arrays parallel to the anatomy arrays so the view zips them by position.
+
+/** A discretized-normal sampler, captured by its (mean, std) — mirrors Rust `SamplerSpec`. */
+export interface SamplerSpec {
+  mean: number;
+  std: number;
+}
+
+/** A custom neuron type (mirrors Rust `NeuronTypeSpec`). */
+export interface NeuronTypeSpec {
+  n_basal_dendrites: number;
+  n_apical_dendrites: number | null;
+  synapse_x_sampler: SamplerSpec;
+  dendrites_per_branch: SamplerSpec;
+  synapses_per_dendrite: SamplerSpec;
+  soma_threshold: number;
+  basal_dendrite_threshold: number;
+  basal_dendrite_constant: SamplerSpec;
+  apical_dendrite_threshold: number | null;
+  apical_dendrite_constant: SamplerSpec | null;
+  learning_rate: number;
+}
+
+/** Which neuron type a population is: a builtin or a `{ Custom: "name" }` ref into neuron_types. */
+export type NeuronTypeRef = "Input" | "Output" | { Custom: string };
+
+export interface PopulationSpec {
+  neuron_type: NeuronTypeRef;
+  size: number;
+  label?: string | null;
+}
+
+export type CompartmentSpec = "Basal" | "Apical";
+
+/** Connection rule — one variant, e.g. `{ FixedInDegree: { k: 8 } }` or `"OneToOne"`. */
+export type ConnRuleSpec =
+  | { DenseRandom: { p: number } }
+  | { FixedInDegree: { k: number } }
+  | { ReceptiveField: { radius: number } }
+  | { Topographic: { patch: number } }
+  | "OneToOne";
+
+export interface ConnectionSpec {
+  from: number;
+  to: number;
+  compartment: CompartmentSpec;
+  rule: ConnRuleSpec;
+}
+
+/** The reproducible network recipe (mirrors Rust `NetworkSpec`). */
+export interface NetworkSpec {
+  seed: number;
+  neuron_types: Record<string, NeuronTypeSpec>;
+  populations: PopulationSpec[];
+  connections: ConnectionSpec[];
+}
+
+// --- anatomy (static structure) ---
+
+export interface SynapseAnatomy {
+  synapse: number;
+  /** Position along the dendrite, 0..=255 — the layout coordinate. */
+  x: number;
+  /** Presynaptic neuron, or null for an unbound (directly-stimulated) slot. */
+  src_neuron: number | null;
+}
+
+export interface DendriteAnatomy {
+  dendrite: number;
+  is_apical: boolean;
+  /** Sign is proximal (>0) vs distal (<=0). */
+  branch_constant: number;
+  threshold: number;
+  synapses: SynapseAnatomy[];
+}
+
+export interface NeuronAnatomy {
+  neuron: number;
+  soma_threshold: number;
+  dendrites: DendriteAnatomy[];
+}
+
+// --- frame (dynamic state; arrays parallel to the anatomy) ---
+
+export interface SynapseState {
+  alpha: number;
+  weight: number;
+  signaled: boolean;
+}
+
+export interface DendriteState {
+  v_b: number;
+  fired: boolean;
+  synapses: SynapseState[];
+}
+
+export interface NeuronFrame {
+  neuron: number;
+  soma_potential: number;
+  soma_beta: number;
+  soma_burst: number;
+  dendrites: DendriteState[];
+}
+
+export interface NetworkFrame {
+  clock: number;
+  neurons: NeuronFrame[];
+}
+
+/** Build a live network from a spec; returns its static anatomy. */
+export const pgBuild = (spec: NetworkSpec) =>
+  invoke<NeuronAnatomy[]>("pg_build", { spec });
+
+/** Inject one AP delivery onto a synapse slot (drained by the next step). */
+export const pgStimulate = (synapse: number, burst: number) =>
+  invoke<void>("pg_stimulate", { synapse, burst });
+
+/** Advance one wavefront; returns the resulting state with this step's firings flagged. */
+export const pgStep = () => invoke<NetworkFrame>("pg_step");
+
+/** Current state without stepping (initial render). */
+export const pgState = () => invoke<NetworkFrame>("pg_state");
+
+/** Clear transient dynamics back to rest, keeping learned weights. */
+export const pgReset = () => invoke<void>("pg_reset");
+
 // ---- Misc ------------------------------------------------------------------------------------
 
 /** The sim's compiled-in constants — proof the neural-sim crate links in-process. */

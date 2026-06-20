@@ -7,12 +7,37 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use crate::network::build::{NetworkBuilder, build_network};
 use crate::network::event::queue::EventQueue;
+use crate::network::event::event::{Event, SYNAPSE_SIGNAL};
 use crate::network::event::r#loop::run_event_loop;
 use crate::neuron::dendrite::Dendrite;
 use crate::neuron::soma::Soma;
 use crate::neuron::synapse::Synapse;
 use crate::neuron::axon::Axon;
 use crate::telemetry::{NetworkView, TelemetrySink};
+
+/// Borrowed, read-only view of the network's **fixed structure** — the static counterpart to
+/// [`NetworkView`] (which is per-tick dynamic state). Every field is a slice into the SoA arrays the
+/// network owns, so constructing one (via [`Network::topology`]) copies nothing. A viewer walks
+/// these to lay out neurons: `dendrite_offsets[n]..dendrite_offsets[n+1]` are neuron `n`'s
+/// dendrites; for dendrite `d`, its live synapses are `synapse_offsets[d]` for
+/// `live_synapse_counts[d]` slots.
+pub struct TopologyView<'a> {
+    pub n_neurons: usize,
+    // soma
+    pub soma_thresholds: &'a [i8],
+    /// Neuron → index of its first dendrite (length `n_neurons + 1`, trailing sentinel).
+    pub dendrite_offsets: &'a [u32],
+    // dendrite
+    pub dendrite_is_apical: &'a [u8],
+    pub dendrite_thresholds: &'a [u16],
+    pub dendrite_constants: &'a [i8],
+    pub live_synapse_counts: &'a [u8],
+    pub dendrite_to_neuron: &'a [u32],
+    /// Dendrite → index of its first synapse slot (length `n_dendrites + 1`, trailing sentinel).
+    pub synapse_offsets: &'a [u32],
+    // synapse
+    pub synapse_x: &'a [u8],
+}
 
 // SoA pattern for efficient GPU memory access.
 // Each field is a vector of length equal to the total number of neurons in the network.
@@ -101,6 +126,35 @@ impl Network {
         );
     }
 
+    /// Inject one presynaptic AP delivery onto synapse slot `synapse` — a `SYNAPSE_SIGNAL` carrying
+    /// `burst`, exactly as a real upstream axon would deliver it. This is the playground's primitive
+    /// for exciting an isolated neuron with no input population wired in: stimulate a synapse, then
+    /// [`step`](Self::step) to watch the EPSP climb its dendrite into the soma. Pushed at `clock`
+    /// (the timestamp the cascade carries); drained by the next `step`. `burst` < 1 is treated as 1
+    /// by the receiving handler.
+    pub fn stimulate(&self, queue: &EventQueue, synapse: u32, burst: i16, clock: u16) {
+        queue.producer_handle().push(Event::with_payload(SYNAPSE_SIGNAL, synapse, clock, burst));
+    }
+
+    /// Borrow this network's *fixed* structure into a read-only [`TopologyView`]: the offset tables,
+    /// compartment flags, and synapse positions a viewer needs to lay a neuron out. Static for the
+    /// life of the network (unlike [`view`](Self::view), which is the per-tick dynamic state), so a
+    /// caller reads it once at build. Copies nothing.
+    pub fn topology(&self) -> TopologyView<'_> {
+        TopologyView {
+            n_neurons: self.n_neurons(),
+            soma_thresholds: &self.somas.soma_thresholds,
+            dendrite_offsets: &self.somas.dendrite_offsets,
+            dendrite_is_apical: &self.dendrites.dendrite_is_apical,
+            dendrite_thresholds: &self.dendrites.dendrite_thresholds,
+            dendrite_constants: &self.dendrites.dendrite_constants,
+            live_synapse_counts: &self.dendrites.live_synapse_counts,
+            dendrite_to_neuron: &self.dendrites.dendrite_to_neuron,
+            synapse_offsets: &self.dendrites.synapse_offsets,
+            synapse_x: &self.synapses.synapse_x,
+        }
+    }
+
     /// Clear the transient per-trial dynamics — soma potentials and dendrite activities — back to
     /// rest, isolating one trial from the next. Learning state (`synapse_weights`, `synapse_alphas`,
     /// `soma_betas`) **persists by design**, and the `*_last_events` timestamp bookkeeping is left
@@ -146,5 +200,62 @@ impl Network {
             }
         }
         edges
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::ALPHA_BOOST;
+    use crate::math::sample::{SamplerI8, SamplerU8};
+    use crate::neuron::config::NeuronConfig;
+    use crate::telemetry::NullSink;
+
+    // One neuron: 2 basal dendrites × 3 live synapses = 6 synapse slots, no apical.
+    fn single_neuron() -> Network {
+        let cfg: &'static NeuronConfig = Box::leak(Box::new(NeuronConfig::new(
+            "test",
+            2,                       // n_basal_dendrites
+            None,                    // n_apical_dendrites
+            SamplerU8::new(128, 50), // synapse_x_sampler
+            SamplerU8::new(1, 0),    // dendrites_per_branch = 1
+            SamplerU8::new(3, 0),    // synapses_per_dendrite = 3
+            10,                      // soma_threshold
+            1000,                    // basal_dendrite_threshold
+            SamplerI8::new(60, 0),   // basal_dendrite_constant
+            None,                    // apical_dendrite_threshold
+            None,                    // apical_dendrite_constant
+            120,                     // learning_rate
+        )));
+        let mut b = NetworkBuilder { populations: Vec::new(), connections: Vec::new() };
+        b.add(cfg, 1);
+        build_network(b, &mut SmallRng::seed_from_u64(7))
+    }
+
+    // `stimulate` injects a SYNAPSE_SIGNAL that the next `step` drains onto the target synapse,
+    // boosting its alpha. Alphas init to 0, so a single boost lands the stimulated slot exactly at
+    // ALPHA_BOOST (decay of 0 is 0, regardless of clock) while its neighbours stay untouched.
+    #[test]
+    fn stimulate_then_step_boosts_only_the_target_synapse() {
+        let mut net = single_neuron();
+        assert!(net.synapses.synapse_alphas.iter().all(|&a| a == 0));
+
+        // Slot 2 is live in dendrite 0 (3 live synapses occupy the block's prefix; the rest of the
+        // fixed-width block is dead tail).
+        let queue = EventQueue::new(16);
+        let target = 2u32;
+        assert!((target as usize) < net.topology().live_synapse_counts[0] as usize);
+        net.stimulate(&queue, target, 5, 0);
+
+        let mut spike_counts = vec![0u32; net.n_neurons()];
+        net.step(&queue, &mut NullSink, &mut spike_counts);
+
+        for (i, &alpha) in net.synapses.synapse_alphas.iter().enumerate() {
+            if i as u32 == target {
+                assert_eq!(alpha, ALPHA_BOOST, "stimulated synapse should be boosted");
+            } else {
+                assert_eq!(alpha, 0, "synapse {i} should be untouched");
+            }
+        }
     }
 }

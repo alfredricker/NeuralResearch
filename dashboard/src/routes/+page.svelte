@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { simConstants } from "$lib/api";
   import ReadingMode from "$lib/components/ReadingMode.svelte";
+  import Playground from "$lib/components/Playground.svelte";
 
   type Mode = "reading" | "simulation";
   let mode = $state<Mode>("reading");
@@ -37,10 +38,7 @@
     {#if mode === "reading"}
       <ReadingMode />
     {:else}
-      <div class="placeholder">
-        <p>Playground coming soon.</p>
-        <p class="dim">The live circuit builder &amp; single-neuron view will live here.</p>
-      </div>
+      <Playground />
     {/if}
   </div>
 </div>
@@ -110,19 +108,5 @@
   .body {
     flex: 1;
     min-height: 0;
-  }
-  .placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    gap: 6px;
-    color: #9aa0ad;
-    font-size: 14px;
-  }
-  .placeholder .dim {
-    color: #6b7080;
-    font-size: 12px;
   }
 </style>
