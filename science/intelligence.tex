@@ -1,0 +1,363 @@
+\documentclass[11pt, a4paper]{article}
+
+% --- SIMPLIFIED PREAMBLE ---
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{amsfonts}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{tikz}
+ 
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\layernorm}{\mathrm{LayerNorm}}
+\newcommand{\softmax}{\mathrm{Softmax}}
+\newcommand{\GRU}{\mathrm{GRU}}
+\newcommand{\MLP}{\mathrm{MLP}}
+\newcommand{\WM}{\mathrm{WeightedMean}}
+
+\title{Intelligence}
+\author{ Ricker }
+\date{March 2026}
+
+\newcommand{\D}{\mathrm{d}}
+
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+\maketitle
+
+\section{To Read}
+\begin{enumerate}
+    \item Stuart \& Hausser 2001 describes the ``boosting'' effects of backpropagating action potentials.
+    \item Thorpe, Delorme, \& Rullen describe how the timing and sequence of populations of neurons is an efficient information coding scheme.
+\end{enumerate}
+
+\section{Key Biological Facts}
+\begin{description}
+    \item[Coincident Distal Synapses] Presynaptic firing at distal synapses has very little effect on somatic membrane potential (Antic et al., 2010; Major et al., 2013). However, if coincident distal synapses fire simultaneously, a dendritic branch will fire its own NMDA dendritic spike, which can cause a sustained subthreshold (no action potential) depolarization at the soma 
+    
+    \item[Correlation Structure] the correlation structure can signal the presence of a stimulus in the absence of changes in firing rate. In an example that is usually associated with the binding problem, the receptive fields of two visual neurons were stimulated in two conditions, one in which a single object was presented, and another in which two objects were presented, but in a way that evoked practically the same firing rates as the single stimulus. In this case, the synchrony between pairs of neurons reflected whether one or two stimuli were shown, even when both firing rates did not vary across conditions.
+    \begin{equation}
+        \psi_q = f(\mathrm{Cov}(\psi_P), \mathbf{x}) 
+    \end{equation}
+    Which says that the state of a neuron depends on the covariance of its input states.
+
+    \item[Dendritic Segment Spiking] The synapses recognizing a given pattern have to be colocated on a dendritic segment. If they lie within 40$\mathrm{\mu}$m of each other then as few eight synapses are sufficient to create an NMDA spike (Major et al., 2008). If the synapses are spread out along the dendritic segment, then up to twenty synapses are needed (Major et al., 2013). A dendritic segment can contain several hundred synapses; therefore each segment can detect multiple patterns.
+
+    \item[Inhibitory Synapses] Inhibitory synapses must come from special inhibitory neurons in a biological network. LTD does not flip an EPSP synapse to an inhibitory one, it just dampens to 0.
+    
+    \item[Rate of Impinging Spikes] The response of a neuron depends on the rates at which excitatory and inhibitory input spikes impinge on it (Selinas, Sejnowski). If $\omega$ is frequency, $\mathbf{y}, \mathbf{x}$ are sets of arbitrary state variables, then
+    \begin{equation}
+       \psi_q =  (\omega_q, \mathbf{y}) =  f(\omega_1, ...,\omega_n, \mathbf{x})
+    \end{equation}
+
+    \item[Passive Neuron Learning] Because dendritic segments spike on their own, neurons can learn new patterns without somatic action potentials. If a pattern of coincident input occurs frequently, dendritic spikes will lead to long term potentiation. Hence, neurons can passively learn to recognize patterns without firing somatic action potentials.
+
+    \item[Processing Speed Constraint] The brain can respond to complex visual stimuli in the range of 100-150ms. Since the stimuli must pass through ~10 layers of processing to produce a response, this limits the time of an individual processing stage to about 10ms. Cortical neurons rarely fire above 10Hz, which is difficult to reconcile with a rate coding scheme (Thorpe, Delorme, Rullen 2001).
+
+    \item[Proximal vs Distal Pyramidal Effects] Excitatory inputs to the proximal dendrite sum linearly and require precise temporal coincidence for effective summation, whereas distal inputs are amplified with high gain and integrated over broader time windows. This allows distal inputs to overcome their electrotonic disadvantage, and become surprisingly more effective than proximal inputs at influencing action potential output. For proximal synapses the EPSP peak decreased as input became more asynchronous, distal synapses produced EPSPs that had remarkably similar sizes over a range of stimulation intervals (Figure 3A). Distal EPSPs at 10 ms intervals were 95\% $\pm$ 1\% of the peak at 1 ms intervals, while for proximal EPSPs the peak decreased to 56\% $\pm$ 4\% (p < 0.0001, ANOVA, n = 19; Figure 3B), which was also seen for small EPSPs (Branco Hausser 2011).
+
+    \item[Sensory Stimulus] Neurons responding to sensory stimuli face the difficult task of encoding parameters that can vary over an enormous dynamic range. For example, photoreceptors in the retina can respond to single photons or can operate in bright light with an influx of millions of photons per second. To deal with such wide-ranging stimuli, sensory neurons often respond most strongly to rapid changes in stimulus properties and are relatively insensitive to steady-state levels (Dayan Abbott). 
+
+    \item[Synapse Type Specificity] Short-term plasticity at connections made by the same axon can vary dramatically depending on the target neuron type (e.g., Markram et al., 1998). Since the postsynaptic cell determines presynaptic release, this is really a matter of synapse-type rather than cell-type specificity (Blackman et al., 2013). 
+
+    \item[Thalamus FF \& FB] The thalamus serves as both a gateway for feedforward sensory information to the cortex and as a hub for feedback interactions between cortical regions (Larkum 1999)
+
+    \item[Time Dependent Plasticity] EPSPs that occur before a post-synaptic excitation are strengthened will those that occur afterwards are depressed (Thorpe, Delorme).
+    
+\end{description}
+
+\section{Important Concepts}
+\begin{description}
+    \item[Activity] A scalar property of a neuron state $\psi_q$. It can be interpreted as how confident a neuron is.
+
+    \item[Axon Hillock] The axon hillock is the last site in the soma where membrane potentials propagated from synaptic inputs are summated before being transmitted to the axon.
+
+    \item[Apical Dendrite] An apical dendrite is a dendrite that emerges from the apex of a pyramidal cell. Apical dendrites are one of two primary categories of dendrites, and they distinguish the pyramidal cells from spiny stellate cells in the cortices. Apical dendrites are theorized to receive feedforward information in pyramidal neurons.
+
+    \item[Basal Dendrite] A basal dendrite emerges from the base of a pyramidal cell.
+
+    \item[BCM Theory] The BCM model proposes a sliding threshold for long-term potentiation (LTP) or long-term depression (LTD) induction, and states that synaptic plasticity is stabilized by a dynamic adaptation of the time-averaged postsynaptic activity. Let $w_j$ be the synaptic weight of the $j$th synapse, $d_j$ be input current, $c(j)$ be the inner product of weights and input currents, $\phi$ a non-linear function, and $\epsilon$ an (often negligible) decay constant. 
+    \begin{equation}
+        \frac{dw_j}{dt} = \phi(c(t))d_j(t) - \epsilon w_j(t)
+    \end{equation}
+    In Payeur's theory, the adaptive threshold is a burst probability, which can be controlled independently of the feedforward activity.
+
+    \item[Binding Problem] The unity of consciousness and (cognitive) binding problem is the problem of how objects, background, and abstract or emotional features are combined into a single experience.[1] The binding problem refers to the overall encoding of our brain circuits for the combination of decisions, actions, and perception. 
+ 
+    \item[BPAP] Neural backpropagation (back propagating action potentials) is the phenomenon in which, after the action potential of a neuron creates a voltage spike down the axon (normal propagation), another impulse is generated from the soma and propagates towards the apical portions of the dendritic arbor or dendrites (from which much of the original input current originated).
+
+    \item[Clustering (Fuzzy)] Clustering or cluster analysis involves assigning data points to clusters such that items in the same cluster are as similar as possible, while items belonging to different clusters are as dissimilar as possible. Clusters are identified via similarity measures. These similarity measures include distance, connectivity, and intensity. Different similarity measures may be chosen based on the data or the application. Fuzzy clustering (also referred to as soft clustering or soft k-means) is a form of clustering in which each data point can belong to more than one cluster.
+
+    \item[Credit Assignment Problem] The problem of learning to associate actions with their long-term, outcomes is known as the temporal Credit Assignment Problem (CAP): to distribute the credit of success among the multitude of decisions involved. 
+
+    \item[Dendrite] A branched cytoplasmic process extending from a nerve cell; it propagates the electrochemical stimulation received from other neural cells to the cell body, or soma, of the neuron from which the dendrites project.
+
+    \item[Diffusion Model] These are world building models that learn by adding noise to the training data and having the model predict the denoised version of the data.
+
+    \item[Eligibility Trace] A proposed mechanism of tracing a conditioned stimulus through time (temporal credit assignment) whereby the synaptic activity slowly decays through time. In the neocortex, the duration of the LTP eTrace, is about 10 s, which is different than the LTD eTrace duration of approximately 5 s  (Shouval Kirkwood 2021).
+
+    \item[EPSP] An excitatory post-synaptic potential is a post-synaptic potential (a message from a pre-synaptic neuron) that makes the post-synaptic neuron more likely to fire an action potential.
+
+    \item[Gate Recurrent Unit] In artificial neural networks, the gated recurrent unit (GRU) is a gating mechanism used in recurrent neural networks, introduced in 2014 by Kyunghyun Cho et al.
+    
+    \item[Gating] A gating function $g(\psi_P)$ decides which neurons contribute to the state of a given receiver neuron $q$. It is analagous to a threshold.
+
+    \item[Lateral Inhibition] In neurobiology, lateral inhibition is the capacity of an excited neuron to reduce the activity of its neighbors. Lateral inhibition disables the spreading of action potentials from excited neurons to neighboring neurons in the lateral direction.
+
+    \item[Leaky Integration]  A leaky integrator equation is a specific differential equation, used to describe a component or system that takes the integral of an input, but gradually leaks a small amount of input over time. Let $A$ be the rate of the leak.
+    \begin{equation}
+    \frac{dx}{dt} = -Ax +C
+    \end{equation}
+
+    \item[Linked Memories] Sehgal et. al. shows that specific dendritic branches are preferentially reactivated by linked memories.
+
+    \item[LFP] Local field potentials (LFP) are transient electrical signals generated in nerves and other tissues by the summed and synchronous electrical activity of the individual cells (e.g. neurons) in that tissue. 
+
+    \item[LTP] Long-term potentiation is a persistent strengthening of synapses based on recent patterns of activity.
+
+    \item[LTD] Long-term depression is one of several processes that serves to selectively weaken specific synapses in order to make constructive use of synaptic strengthening caused by LTP. This is necessary because, if allowed to continue increasing in strength, synapses would ultimately reach a ceiling level of efficiency, which would inhibit the encoding of new information.
+
+    \item[Multiplexing] Consolidating multiple input signals into one information rich output signal.
+
+    \item[PBM Neuron] Poirazi, Brannon, and Mel treat the neuron as a two layer neural network, where there are spatially independent domains within the dendritic tree that have their own nonlinear summation. Let $g$ be a global output nonlinearity, $w_i$ be the $i$th weight, and $s(n_i)$ be subunit input output. 
+    \begin{equation}
+        y  =g \left(\sum_{i=1}^m w_i s(n_i) \right)
+    \end{equation}
+
+    \item[Phase Precession] A neurophysiological process in which the time of firing of action potentials by individual neurons occurs progressively earlier in relation to the phase of the local field potential oscillation with each successive cycle.
+
+    \item[Predictive Coding] The brain solves the problem of modeling distal causes of sensory input through a version of Bayesian inference. The internal model in the brain updates to form better beliefs about sensory information.
+
+    \item[Recurrent Neural Network] In artificial neural networks, recurrent neural networks (RNNs) are designed for processing sequential data, such as text, speech, and time series, where the order of elements is important. Unlike feedforward neural networks, which process inputs independently, RNNs utilize recurrent connections, where the output of a neuron at one time step is fed back as input to the network at the next time step. This enables RNNs to capture temporal dependencies and patterns within sequences.
+
+    \item[Softmax function] The softmax function takes as input a tuple z of K real numbers, and normalizes it into a probability distribution consisting of K probabilities proportional to the exponentials of the input numbers. That is, prior to applying softmax, some tuple components could be negative, or greater than one; and might not sum to 1; but after applying softmax, each component will be in the interval $(0,1)$, and the components will add up to 1, so that they can be interpreted as probabilities.
+    \begin{equation}
+        \sigma : \mathbb{R}^K \to (0,1)^K, \sigma(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^K e^{z_j}}
+    \end{equation}
+
+    \item[Somatodendritic Residual] The mismatch between local dendritic activity and soma activity reflects that dendrites contain information not found in the soma. The importance of this for learning and the credit assignment problem is elaborated in \ref{sec:sdr}
+
+    \item[Supervised Learning] Supervised learning algorithms experience a dataset containing features, but each example is also associated with a label or target. For example, the Iris dataset is annotated with the species of each iris plant. A supervised learning algorithm can study the Iris dataset and learn to classify iris plants into three different species based on their measurements.
+
+    \item[Synaptic Plasticity] The ability of a synapse to strenghten or weaken over time.
+
+    \item[Synaptic Strength] The amplification of an action potential across a synapse. In mathematical terms, it is the increase in probability of a post-synaptic neuron to fire given the release of a unit of neurotransmitters into the synaptic cleft.
+
+    \item[Synaptic Vesicle] In a neuron, synaptic vesicles (or neurotransmitter vesicles) store various neurotransmitters that are released at the synapse. The release is regulated by a voltage-dependent calcium channel. Vesicles are essential for propagating nerve impulses between neurons and are constantly recreated by the cell.
+
+    \item[Temporal Coding] Temporal coding refers to (or should
+refer to) temporal precision in the response that does not arise solely from
+the dynamics of the stimulus, but that nevertheless relates to properties
+of the stimulus. The interplay between stimulus and encoding dynamics
+makes the identification of a temporal code difficult (Dayan Abbott 38).
+
+    \item[Transformer] In deep learning, the transformer is a family of artificial neural network architectures based on the multi-head attention mechanism, in which text is converted to numerical representations called tokens, and each token is converted into a vector via lookup from a word embedding table. At each layer, each token is then contextualized within the scope of the context window with other (unmasked) tokens via a parallel multi-head attention mechanism, allowing the signal for key tokens to be amplified and less important tokens to be diminished.
+    
+    \item[Unsupervised Learning] Unsupervised learning algorithms experience a dataset containing many features, then learn useful properties of the structure of this dataset. In the context of deep learning, we usually want to learn the entire probability distribution that generated a dataset, whether explicitly as in density estimation or implicitly for tasks like synthesis or denoising. Some other unsupervised learning algorithms perform other roles, like dividing the dataset into clustersof similar examples
+\end{description}
+
+
+
+\section{Properties of Human Intelligence}
+\subsection{Physical Intuition}
+A promising recent approach sees intuitive physical reasoning as similar to inference over a physics software engine, the kind of simulators that power modern-day animations and games. According to this hypothesis, people reconstruct a perceptual scene using internal representations of the objects and their physically relevant properties (such as mass, elasticity, and surface friction), and forces acting on objects (such as gravity, friction, or collision impulses) (Lake et al 2017). To reiterate, human learners understand physical properties through sensory experience. They also understand how these properties affect an object's interaction with the greater environment. \\
+
+Allow me to describe the process of human physical intuition. I understand the different properties of solids, liquids, and gases. If I touch a solid, I know that my hand will not go through it. If I touch a liquid, I know I will get wet, and if I touch a gas I know I will pass through it without much sensory stimulation. I also know that if I place a spherical object on a slanted one, that the spherical object will roll. I can map properties to classes of objects. I can distinguish living things from the non living and understand that the living possess agency and can make decisions within the environment. We seem to perform object categorization and have an intuitive graph of objects and properties. For example, I know that the color brown does not influence the property of density on familiar objects, I know that honey is more viscous than water, etc. Perhaps a difference between the model building and pattern recognition that Lake emphasizes is the ability to quickly interpret a new object into your existing graph of relations and objects. This is a generalization technique.
+
+\subsection{Domain Knowledge}
+``Even with just a few examples, people can learn remarkably rich conceptual models. One indicator of richness is the variety of functions that these models support. Beyond classification, concepts support prediction, action, communication, imagination, explanation, and composition. These abilities
+are not independent; rather they hang together and interact (Solomon et al., 1999), coming for free with the acquisition of the underlying concept. Returning to the previous example of a novel two wheeled vehicle, a person can sketch a range of new instances (Figure 1B-ii), parse the concept into
+its most important components (Figure 1B-iii), or even create a new complex concept through the combination of familiar concepts (Figure 1B-iv). Likewise, as discussed in the context of Frostbite, a learner who has acquired the basics of the game could flexibly apply their knowledge to an infinite set of Frostbite variants (Section 3.2). The acquired knowledge supports reconfiguration to new tasks and new demands, such as modifying the goals of the game to survive while acquiring as few points as possible, or to efficiently teach the rules to a friend. This richness and flexibility suggests that learning as model building is a better metaphor than learning as pattern recognition. Furthermore, the human capacity for one-shot learning suggests that these models are built upon rich domain knowledge rather than starting from a blank slate'' (Lake et al 2017). \\
+
+A central part of human intelligence is a natural domain selection mechanism to attempt an answer to a problem. We can understand high level abstract features of a question or task, which guides our solution, rather than taking random stabs at an answer.
+
+
+\subsection{Compositionality}
+Compositionality refers to the ability to break down concepts into their components, understand each individually, and understand how each component influences the hierarchy of compositional components to fullfill the complete concept. For example, a scene with a man walking a dog is a familiar concept to us. We understand the social context of owning a dog, we understand that the leash is to protect the dog from running off and hurting itself or others, we understand the pavement on which the dog is walking etc. Parts themselves can also be composed of subparts, such as paws on a foot on a dog. Complex movements can be thought of as broken down into small learned components.
+
+\subsection{Learning to Learn}
+A human seems capable of extracting prior features of previous tasks to apply to new ones. Our brain efficiently shares learned properties that are likely to apply to novel occurrences. ``People seem to transfer knowledge at multiple levels, from low-level perception to high-level strategy, exploiting compositionality at all levels. Most basically, they immediately parse the game environment into objects, types of objects, and causal relations between them. People also understand that video games like this have goals, which often involve approaching or avoiding objects based on their type'' (Lake et al 2017).
+
+\section{General Theories of Mind}
+\subsection{Bayesian Minds}
+Baker, Saxe, Tenenbaum (2009)
+
+\subsection{Naive Utility Calculus}
+
+\subsection{Global Workspace}
+
+\subsection{Thousand Brains}
+
+
+
+
+\section{Neuron Models}
+Neuron states are important. A neuron in an inactive state is highly polarized ($\alpha < 0$), a neuron in a predictive state is subthreshold depolarized ($\alpha > 0, \alpha < g$), and in an active state $\alpha > g$.
+
+
+\subsection{The Izhikevich Model}
+Given the general framework of state spaces and transformations, it is time to apply it to a computationally efficient model of spike based firing neurons, the Izhikevich model. This is a \textbf{firing pattern} model. It is a set of two differential equations capable of representing the rich diversity of biological firing patterns. It is not ideal as a complete model of a neuron, because the rich information coming from presynaptic dendrites is collapsed into a scalar state $d$.
+\begin{equation}
+    \psi(a,b,\gamma, \delta, d)
+\end{equation}
+
+\subsection{Two Layer Bipyramidal Model}
+As for information integration, the neuron model of Poirazi and Mel treats a neuron as a two layer neural network. 
+\begin{equation}
+    y  =g \left(\sum_{i=1}^m w_i s(n_i) \right)
+\end{equation}
+
+\subsection{Larkum Model}
+In Larkum's model of the neuron, there are two information streams to pyramidal neurons, feedforward basal inputs and feedback apical inputs. When the neuron is depolarized from the basal inputs (these have greater influence on depolarization as they are proximal), the neuron becomes increasingly sensitized to distal apical input. Coincident apical input is capable of triggering a rapid burst fire of action potentials. \\
+
+There are three main neural output modes in the Larkum model.
+\begin{enumerate}
+    \item If the neuron receives sufficient feedforward information from a sustained stimulus, it produces stead low frequency spike outputs.
+    \item If the neuron receives sufficient feedback input or an ``internal prediction'', it produces a sporadic high frequency burst of spikes.
+    \item If the neuron receives both sufficient feedforward input and internal feedback predictions, it outputs a sustained burst of spikes.
+\end{enumerate}
+
+``Rather than requiring an additional mechanism to detect and group neurons of interest, those neurons matching the feedback prediction simply have the most influence on the rest of the brain because of their increased firing and/or bursting. Their activity in turn provides additional feed-forward influence to further hone the feedback prediction and so forth. This does not rule out the possibility that other mechanisms, such as synchrony between ensembles of
+neurons, might contribute simultaneously with the associative pairing  mechanism.''
+
+
+\section{Neuron Types}
+It is necessary to develop a taxonomy of neurons of various computational purposes to enable the formation of biologically realistic networks.
+
+\subsection{CA(n) Neurons}
+CA1 is the first region in the hippocampal circuit, from which a significant output pathway goes to layer V of the entorhinal cortex. The main output of CA1 is to the subiculum. \\
+
+CA2 is a small region located between CA1 and CA3. It receives some input from layer II of the entorhinal cortex via the perforant path. Its pyramidal cells are more like those in CA3 than those in CA1. \\
+
+CA3 receives input from the mossy fibers of the granule cells in the dentate gyrus, and also from cells in the entorhinal cortex via the perforant path. The mossy fiber pathway ends in the stratum lucidum. The perforant path passes through the stratum lacunosum and ends in the stratum moleculare. There are also inputs from the medial septum and from the diagonal band of Broca which terminate in the stratum radiatum, along with commisural connections from the other side of the hippocampus. \\
+
+The pyramidal cells in CA3 have a unique type of dendritic spine called a thorny excrescence or thorn, only found in CA3 pyramidal cells and hilar mossy cells. The thorn has a thin single spine with a number of heads. Clusters of thorns sit on a dendrite on a broad stem. There are also longer spines called long-neck spines. These unique structures also help to demarcate CA3 from CA2. \\
+
+A key physiological function of the CA3 is encoding heteroassociative memories using its recurrent circuitry. A seminal hypothesis by John Lisman postulated that during a single theta cycle, a defined set of CA3 principal neurons can activate each other to form a well defined sequence, and the spikes (action potentials) of these cells tend to coincide with the peaks of the superimposed gamma oscillation.
+
+\subsection{Place Cells (Hippocampus)}
+A place cell is a kind of pyramidal neuron in the hippocampus that becomes active when an animal enters a particular place in its environment, which is known as the place field. Place cells are thought to act collectively as a cognitive representation of a specific location in space, known as a cognitive map.
+
+\subsection{Purkinje Neurons}
+A unique type of prominent, large neuron located in the cerebellar cortex of the brain. With their flask-shaped cell bodies, many branching dendrites, and a single long axon, these cells are essential for controlling motor activity. Purkinje cells mainly release GABA (gamma-aminobutyric acid) neurotransmitter, which inhibits some neurons to reduce nerve impulse transmission. Purkinje cells efficiently control and coordinate the body's motor motions through these inhibitory actions.
+
+\subsection{Interneuron}
+Interneurons consist of two compartments: a basal dendrite receiving input from pyramidal cells in the same layer, and a somatic compartment that receives input from pyramidal cells in higher layers.
+
+\subsection{L5 Pyramidal Neurons} \label{sec:sdr}
+``Previous work in brain slices demonstrated that dendritic GCaMP signals are larger when current is injected in the distal trunk and smaller when current is injected at the soma (controlling for the same number of triggered corresponding action potentials). This indicates that differences in somatic versus dendritic magnitude for coincident GCaMP events reflect the spatial bias of the different inputs that target these two compartments... This captured the variance of dendritic responses for a given somatic event magnitude. We then defined positive and negative residuals as dendritically amplified and attenuated events, respectively.'' (Francioni et al) \\
+
+Layer 5 pyramidal neurons have a set of basal dendrites near the cell body that receives feedforward-like input, and a set of apical dendrites all the way up in layer 1 that receives feedback–like input. Depending on which set of dendrites is receiving input, or neither or both, the neuron’s output functions in different modes- silent, regular spiking, or burst spiking. \\
+
+Layer 5 neurons in the canonical cortical microcircuit engage in a sophisticated learning algorithm of vectorized updates rather than scalar learning signals. The steps of the algorithm are approximately
+\begin{enumerate}
+    \item Basal dendrites receive feedforward input. 
+    \item Clusters of dendrites breach spiking thresholds and depolarize the soma.
+    \item When the neuron exceeds the threshold and triggers an action potential, a postsynaptic activity signal is sent to the dendrites.
+    \item The neuron receives top down information from apical dendrites.
+    \item If the top down feedback from apical dendrites is greater than the somatic activity (positive SD residual), this is a potentiation signal and the dendritic weights that contributed to the action potential are increased. Inversely, if top down feedback is weak (negative SD residual), then the dendritic weights are decreased.
+\end{enumerate}
+
+\subsection{Martinotti Neuron}
+Martinotti cells are small multipolar neurons with short branching dendrites. They are scattered throughout various layers of the cerebral cortex, sending their axons up to L1 neurons where they form axonal arborization. The arbors transgress multiple columns in L6 and make contacts with the distal tuft dendrites of pyramidal cells.
+
+
+
+\section{Information}
+This section focuses on biological mechanisms for encoding and decoding information. I explore modern literature of spike timing coding hypotheses, spike rate coding hypotheses, neural population coding, and graph information representation theory.
+
+\subsection{Spike Phasing}
+Spike-phase multiplexing (15, 17) posits that a population represents bottom–up information by its firing rate and top–down information by the timing of its spikes with respect to distinct frequency bands of a local field potential. This type of frequency-division multiplexing (18) is supported by multiple experimental studies in different systems (15, 17), but the cellular mechanisms for encoding and decoding with the local field potential remain to be fully articulated (Naud Sprekeler 2018).
+
+\subsection{Spike Timing}
+Information intensity translates directly into a sensible spike timing code. Let $r_i(t_0,t_1)$ be the average firing rate of neuron $i$ in the interval $[t_0,t_1]$. It is known that firing rate increases with stimulus intensity 
+\begin{equation}
+    r_i(t_0,t_1) \propto I
+\end{equation}
+So if neuron A receives the stimulus of the highest intensity, neuron B with the next highest stimulus, and so on, we can expect neuron A to fire first, B to fire second, etc. In a simple model, let spiking be a linear function of cumulative intensity over time, where all neurons respond identically. Let a neuron emit a spike when the intensity breaches the threshold $I\ge z$, therefore the number of spikes in an interval is 
+\begin{equation}
+    n = \int_{t_0}^{t_1} I(t) dt  \mod z
+\end{equation}
+Then a population of neurons $\mathcal{K}$ can perform classification by selecting the neuron with the highest number of spikes, considering it had the most intense stimulus.\\
+
+Decoding the precise timing of spikes allows for the transmission of a large amount of bandwidth, and has more potential than just informing a classifier. If the precision of spike timing is 1ms, then for $t$ ms you can encode up to $N\log_2(t)$ bits of information for a population of $N$ neurons.
+
+
+\subsection{Spike Order}
+Spike rank order coding has a bandwidth of $\log_2(N!)$ for a population of $N$ neurons. To understand this information encoding mechanism, consider a neuron that has 5 presynaptic sensory neurons. Let these 5 input neurons each be connected to inhibitory interneurons $J$, where there firing of one neuron builds up inhibition, so later firing becomes progressively attentuated. \\ 
+
+If input A has the maximum weight, input B has second maximum, and so on, it is clear that the maximum excitation would occur if A fired, then B, etc.
+
+
+
+
+\section{Learning Algorithms}
+\subsection{Burst-dependent Synaptic Plasticity}
+Payeur et. al. hypothesize that synaptic plasticity is influenced by the neuron's bursting mode. The weight of a synapse is to be potentiated or depressed based on the presynaptic $i$ and postsynaptic $j$ activity. Let $\eta$ be the learning rate, $B_j(t)$ be the effects of bursts, $\tilde{E}_i$ an eligibility trace of presynaptic activity, and $E_j(t)$ postsynaptic activity. Note that $E_j$ and $B_j$ are discrete boolean variables, taking values of either $1$ or $0$.
+\begin{equation}
+    \frac{dw_{ij}}{dt} = \eta \tilde{E}_i(B_j(t) - \bar{P}_j(t)E_j(t))
+\end{equation}
+The variable $\bar{P}_j \in [ 0,1 ]$ is an exponential moving average of the proportion of events that are bursts in postsynaptic neuron $j$, with a slow $\tau_{avg} \approx 5s$ time constant. When a postsynaptic event that is not a burst occurs, the weight decreases proportionally to $-\bar{P}_j(t) \tilde{E}_i(t) < 0$. In contrast, if a postsynaptic event is a burst, then the weight increases proportionally to $(1- \bar{P}_j(t)) \tilde{E}_i(t) > 0$.
+Hence, this moving average regulates the relative strength of burst-triggered potentiation and event-triggered depression. It has been well established that such mechanisms exist in real neurons. \\
+
+The inputs to the apical dendrites in the postsynaptic neurons were what regulated the number of bursts, and this also controlled changes in the synaptic weights, through the burst-dependent learning rule. Essentially, you want topdown feedback into the apical dendrites in order to produce LTP. If the somatic basal dendrites cause an event, shortly followed by ``confirmation'' or a ``teaching signal'' from the apical dendrites, the neuron transitions to bursting mode and potentiates the synapses that were active to cause the positive signal. Conversely, if there is no top down signal, this corresponds to disagreement and triggers LTD. \\
+
+When dealing with eligibility traces, it is essential that plasticity will not be simply proportional to presynaptic activity times reward activity, but instead is proportional to presynaptic activity times the difference between postsynaptic activity and reward. In such a case, learning terminates once the postsynaptic activity reached the value of reward. This prevents synapses from oversaturating. 
+
+
+\subsection{Target Propagation}
+Ernoult et al. (2022) propose a novel feedback weights training scheme
+which, by construction, pushes the Jacobian of the feedback operator towards the transpose of its feedforward counter- part, in a layer-wise fashion and without having to use direct feedback connections in the feedback pathway.
+
+
+
+
+\subsection{Latent Equilibrium}
+In continuous time systems, it is a notable problem that teaching signals deep within the network can mismatch with external stimulus due to processing lag of individual components. Latent equilibrium (Haider et al) seeks to achieve a model with arbitrarily fast inference despite non zero processing time for each component of the model (typically layers in a deep convolutional network). Haider describes a network as a position in phase space $(\mathbf{u}, \mathbf{\dot{u}})$, defining the ``abstract network state'' as
+\begin{equation}
+    \mathbf{\breve{u}}_m = \mathbf{u} + \tau_m \mathbf{\dot{u}}
+\end{equation}
+Where the breve operator $\breve{} = (1+\tau d/dt)$. Latent equilibrium makes use of energy function dynamics.
+\begin{equation}
+    E(\mathbf{\breve{u}}_m) = \frac{1}{2}||\mathbf{\breve{u}}_m - \mathbf{W}\sigma(\mathbf{\breve{u}}_m) - \mathbf{b}||^2 + \beta\mathcal{L}(\mathbf{\breve{u}}_m)
+\end{equation}
+Intuitively speaking, $E$ measures the difference between “what neurons guess that they will be doing in the future” $\mathbf{\breve{u}}_m$ and what their biases and presynaptic afferents believe they should be doing $\mathbf{W}\sigma(\mathbf{\breve{u}}_m) + \mathbf{b}$. Furthermore, for a subset of neurons, it adds a loss $\mathcal{L}$ that provides an external measure of the error for the states of these neurons, determined by instructive signals such as labels, reconstruction errors or rewards.  \\
+
+The learning rule is defined by Haider as
+\begin{equation}
+    \mathbf{\dot{W}} \propto -\nabla E \implies \frac{1}{\eta}\mathbf{\dot{W}} = (\mathbf{\breve{u}}_m - \mathbf{\dot{W}}\sigma(\mathbf{\breve{u}}_m) - \mathbf{b}) \sigma(\mathbf{\breve{u}}_m)^T
+\end{equation}
+
+\subsection{Neural Least Action}
+Senn paper
+
+\subsection{Credit Assignment Across Time}
+Bellec et al 2020
+
+\subsection{Predictive Forward Forward}
+Ororbia \& Mali 2023
+
+\subsection{Predictive Coding}
+
+\subsection{Attention Gated Memory Tagging (AuGMEnT)}
+Tagging "memory" neurons can be continuously activated. This algorithm fits into a backprop framework.
+
+
+\subsection{Bayesian Program Learning}
+This learning method from Lake et al represents concepts as simple stochastic programs.  These programs allow the model to express causal knowledge about how the raw data are formed, and the probabilistic semantics allow the model to handle noise and perform creative tasks. This model seeks to incorporate compositionality, causality, and learning-to-learn, three key factors that the authors believe are central to the success of rapid and general human learning abilties.
+
+\subsection{Joint-Embedding Predictive Architecture}
+This algorithm is a self-supervised learning mechanism that is inspired by algorithms that take the training data, add noise to portions of it and have the model try to predict the complete data example. Instead of predicting the missing text or pixel inputs directly, JEPA predicts the missing pieces in an abstract representation space, which leads the model to learn more semantic features.
+
+
+\subsection{Slot Attention}
+Slot attention (Locatello et. al. 2020) provides a differentiable interface between perceptual representations and a set of variables called slots. These slots use an efficient common representational format to enhance generalization capabilities. The Slot Attention module maps from a set of N input feature vectors to a set of K output vectors that we refer to as slots. Each vector in this output set can, for example, describe an object or an entity in the input. At each iteration, slots compete for explaining parts of the input via a softmax-based attention
+mechanism and update their representation using a recurrent update function. 
+
+\end{document}
